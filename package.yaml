@@ -1,0 +1,18 @@
+name: data-bitcode-llvm
+version: 3.8.0.0
+synopsis: llvm bitcode reader and writer
+license: BSD3
+author: Moritz Angermann <moritz@lichtzwerge.de>
+maintainer: Moritz Angermann <moritz@lichtzwerge.de>
+copyright: lichtzwerge GmbH
+category: Code Generation
+
+github: lichtzwerge/data-llvm-bitcode
+
+dependencies:
+  - base >= 4.7 && < 5
+  - pretty >= 1.1
+  - data-bitcode >= 0.1
+
+library:
+  source-dirs: src
