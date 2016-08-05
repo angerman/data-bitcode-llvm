@@ -55,6 +55,7 @@ data Value
     , gLinkage :: Linkage
     , gParamAttrs :: Word64
 --    , gAlignment :: Word64          -- ^ The logarithm base 2 of the variable's requested alignment, plus 1
+    -- TODO: turn this into a Maybe
     , gSection :: Word64              -- ^ If non-zero, the 1-based section index in the table of @MODULE_SECTION_NAME@.
     , gVisibility :: Visibility       -- ^ If present, an encoding of the visibility of this variable
     , gThreadLocal :: ThreadLocalMode -- ^ If present, an encoding of the thread local storage mode of the variable
