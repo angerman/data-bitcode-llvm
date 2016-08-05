@@ -513,7 +513,7 @@ parseFunction (f@(Named _ V.Function{..}), b) = do
   savedValueList <- askValueList
   savedVST       <- askValueSymbolTable
   -- Not sure what we do about Uselist yet.
-  let Ptr _ (T.Function _ _ paramTys) = traceShowId $ fType
+  let Ptr _ (T.Function _ _ paramTys) = fType
   -- put the decl header onto the valuelist.
   mapM_ (tellValue . Arg) paramTys
   nVals' <- length <$> askValueList

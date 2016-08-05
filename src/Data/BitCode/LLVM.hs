@@ -44,6 +44,8 @@ data Module = Module
   , mTriple :: Maybe String    -- ^ Optional triple: usually <arch>-<vendor>-<os>
   , mDatalayout :: Maybe String-- ^ Optional data layout string.
   , mValues :: [Symbol]        -- ^ Globals. (Global values and constants.)
+  -- NOTE: these are *not* used during generation.
+  --       Only the mValues are used.
   , mDecls :: [Symbol]         -- ^ Function declarations for functions outside of the module.
   , mFns :: [Function]         -- ^ Function definitions for function contained within the module.
   }

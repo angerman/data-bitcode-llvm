@@ -34,6 +34,8 @@ import Data.BitCode (denormalize)
 import Data.BitCode.Writer (emitTopLevel)
 import Data.BitCode.Writer.Monad (evalBitCodeWriter, ask)
 
+import Data.BitCode.LLVM.Pretty
+
 --------------------------------------------------------------------------------
 -- Turn things into NBitCode.
 --
@@ -79,10 +81,10 @@ instance {-# OVERLAPPING #-} ToNBitCode [T.Ty] where
           mkTypeRec (T.Function vargs t ts)  = [ mkRec TC.FUNCTION ((if vargs then 1 else 0::Int):map (lookupIndex tys) (t:ts)) ]
           mkTypeRec T.Token                  = [ mkEmptyRec TC.TOKEN ]
 
-lookupIndex :: (Eq a, Show a, Integral b) => [a] -> a -> b
+lookupIndex :: (Pretty a, Eq a, Show a, Integral b) => [a] -> a -> b
 lookupIndex xs x = case elemIndex x xs of
   Just i -> fromIntegral i
-  Nothing -> error $ "Unable to find " ++ show x ++ " in " ++ show xs
+  Nothing -> error $ "Unable to find " ++ (show $ pretty x) ++ " in " ++ (show $ map pretty xs)
 
 
 -- We *can not* have ToNBitCode Module, as we
