@@ -37,6 +37,8 @@ data Inst
   | UBr BasicBlockId
   -- | Conditional branch
   | Br Symbol BasicBlockId BasicBlockId
+  -- | Switch
+  | Switch Symbol BasicBlockId [(Symbol, BasicBlockId)]
   deriving (Show, Eq)
 
 instance ToSymbols Inst where
@@ -55,25 +57,30 @@ instance ToSymbols Inst where
 
 
 instTy :: Inst -> Maybe Ty
-instTy (Alloca t _ _) = Just t
-instTy (Cast t _ _) = Just t
-instTy (Load t _ _) = Just t
-instTy (Store{}) = Nothing
-instTy (Call t _ _) = Just t
-instTy (Ret{}) = Nothing
-instTy (UBr{}) = Nothing
-instTy (Br{}) = Nothing
-instTy (Cmp2 t _ _ _) = Just t
-instTy (BinOp t _ _ _ _) = Just t
+instTy (Alloca t _ _)          = Just t
+instTy (Cast t _ _)            = Just t
+instTy (Load t _ _)            = Just t
+instTy (Store{})               = Nothing
+instTy (Call t _ _)            = Just t
+instTy (Ret{})                 = Nothing
+instTy (UBr{})                 = Nothing
+instTy (Br{})                  = Nothing
+instTy (Switch{})              = Nothing
+instTy (Cmp2 t _ _ _)          = Just t
+instTy (BinOp t _ _ _ _)       = Just t
 -- GEP returns a pointer to it's type. In the
 --     same address space.
 -- TODO: This *is* incorrect.
 --       the actual type woud have to be the type
 --       of the index traversal into the value.
 instTy (Gep t@(Ptr s _) _ _ _) = Just (Ptr s t)
+instTy (Gep t _ _ _)           = Just (Ptr 0 t)
+instTy i                       = error $ "No instTy for instruction: " ++ show i
 
+-- The terminator instructions are: ‘ret‘, ‘br‘, ‘switch‘, ‘indirectbr‘, ‘invoke‘, ‘resume‘, ‘catchswitch‘, ‘catchret‘, ‘cleanupret‘, and ‘unreachable‘.
 isTerminator :: Inst -> Bool
-isTerminator (Ret{}) = True
-isTerminator (UBr{}) = True
-isTerminator (Br{})  = True
-isTerminator _       = False
+isTerminator (Ret{})    = True
+isTerminator (UBr{})    = True
+isTerminator (Br{})     = True
+isTerminator (Switch{}) = True
+isTerminator _          = False

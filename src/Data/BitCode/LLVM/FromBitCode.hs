@@ -23,6 +23,8 @@ import Data.BitCode.LLVM.Codes.Constants
 import Data.BitCode.LLVM.Codes.Metadata as MD
 import Data.BitCode.LLVM.Codes.Function as FC
 
+import Data.BitCode.LLVM.Types
+
 import Data.BitCode.LLVM.Value      as V
 import Data.BitCode.LLVM.Type       as T
 import Data.BitCode.LLVM.Instruction as I
@@ -619,7 +621,14 @@ parseInst rs = \case
     cond' <- getRelativeVal rs cond
     return . Just $ Br cond' bbN bbN'
   -- 12
-  -- (INST_SWITCH, vals)
+  (INST_SWITCH, (opTy:cond:defaultBlock:cases)) -> do
+    ty <- askType opTy
+    cond' <- getRelativeVal rs cond
+    Just . Switch cond' defaultBlock <$> parseCase cases
+    where
+      parseCase :: [BC.Val] -> LLVMReader [(Symbol, BasicBlockId)]
+      parseCase [] = pure []
+      parseCase (valId:blockId:cases) = (:) <$> ((,blockId) <$> getRelativeVal rs valId) <*> parseCase cases
   -- 13
   -- (INST_INVOKE, vals)
   -- 14 - Unused
