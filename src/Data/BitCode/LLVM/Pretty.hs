@@ -70,7 +70,9 @@ instance Pretty Ty where
   pretty (T.Function False retTy pTy) = parens (hsep (punctuate comma (map pretty pTy))) <+> text "->" <+> pretty retTy
   pretty (T.Function True retTy pTy) = parens (hsep (punctuate comma ((map pretty pTy) ++ [text "..."]))) <+> text "->" <+> pretty retTy
   -- use braces for structs.
-  pretty x = text (show x)
+  pretty (T.StructNamed n _ els) = text "struct" <+> text n <+> braces (hsep (punctuate comma (map pretty els)))
+  pretty (T.StructAnon _ els) = text "struct" <+> braces (hsep (punctuate comma (map pretty els)))
+  pretty x = error $ "Can not pretty print Ty: " ++ show x
 
 -- * Constants
 instance Pretty Const where
@@ -82,7 +84,11 @@ instance Pretty Const where
   pretty (V.String s) = doubleQuotes $ text (escape s)
   pretty (V.CString s) = doubleQuotes $ text (escape s) <> text "\\0"
   pretty (V.InboundsGep t idxs) = parens $ text "getElemenentPointer inbounds" <+> parens (hsep . punctuate (text " !!") $ map pretty idxs) <+> text "::" <+> pretty t
-  pretty x = text (show x)
+  pretty (V.Struct vals) = text "struct" <+> braces (hsep (punctuate comma (map pretty vals)))
+  pretty (V.Cast op t v) = text "cast" <+> text (map toLower (show op)) <+> pretty v <+> text "to" <+> pretty t
+  pretty (V.BinOp op lhs rhs) = parens (pretty lhs) <+> text (map toLower $ show op) <+> parens (pretty rhs)
+  pretty (V.Array vals) = brackets (hsep (punctuate comma (map pretty vals)))
+  pretty x = error $ "Can not pretty print Const: " ++ show x
 
 escape :: String -> String
 escape [] = []
@@ -116,13 +122,16 @@ instance Pretty Inst where
   pretty (Alloca t v _) = text "alloca" <+> parens (pretty v) <+> text "::" <+> pretty t
   pretty (Load   t v _) = text "load" <+> parens (pretty v) <+> text "::" <+> pretty t
   pretty (Store  v r _) = pretty r <+> text "->" <+> pretty v
-  pretty (Call   t f args) = pretty (fCallingConv (symbolValue f)) <+> fromMaybe (char 'f') (text <$> symbolName f) <> parens (hsep . punctuate comma $ map pretty args) <+> text "::" <+> pretty t
+  pretty (Call   t f args)
+    | f'@(V.Function{}) <- symbolValue f = pretty (fCallingConv f') <+> fromMaybe (char 'f') (text <$> symbolName f) <> parens (hsep . punctuate comma $ map pretty args) <+> text "::" <+> pretty t
+    | otherwise = text "Call without function symbol not yet supported."
   pretty (Cmp2   t l r p)  = parens (pretty l) <+> text (show p) <+> parens (pretty r) <+> text "::" <+> pretty t
   pretty (I.Gep  t ib v idxs) = text "getElementPointer" <+> (if ib then text "inbounds" else empty) <+> pretty v <+> text "!!" <+> hcat (map pretty idxs)
   pretty (Ret v)       = text "ret" <+> parens (pretty v)
   pretty (UBr bbId)    = text "br" <+> pretty bbId
   pretty (Br on bbId bbId') = text "br" <+> parens (pretty on) <+> pretty bbId <+> pretty bbId'
-
+  pretty (Switch on defBbId cases) = text "case" <+> parens (pretty on) <+> text "of"
+    $+$ nest 2 (vcat (map (\(val,bbId) -> pretty val <+> text "->" <+> pretty bbId) cases) $+$ text "_ ->" <+> pretty defBbId)
 -- -----------------------------------------------------------------------------
 -- Identification
 --
