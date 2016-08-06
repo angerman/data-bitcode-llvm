@@ -6,8 +6,8 @@ name:           data-bitcode-llvm
 version:        3.8.0.0
 synopsis:       llvm bitcode reader and writer
 category:       Code Generation
-homepage:       https://github.com/lichtzwerge/data-llvm-bitcode#readme
-bug-reports:    https://github.com/lichtzwerge/data-llvm-bitcode/issues
+homepage:       https://github.com/angerman/data-llvm-bitcode#readme
+bug-reports:    https://github.com/angerman/data-llvm-bitcode/issues
 author:         Moritz Angermann <moritz@lichtzwerge.de>
 maintainer:     Moritz Angermann <moritz@lichtzwerge.de>
 copyright:      lichtzwerge GmbH
@@ -18,7 +18,7 @@ cabal-version:  >= 1.10
 
 source-repository head
   type: git
-  location: https://github.com/lichtzwerge/data-llvm-bitcode
+  location: https://github.com/angerman/data-llvm-bitcode
 
 library
   hs-source-dirs:
