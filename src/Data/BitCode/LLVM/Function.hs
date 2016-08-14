@@ -6,7 +6,7 @@ module Data.BitCode.LLVM.Function where
 import Data.BitCode.LLVM.Types
 import Data.BitCode.LLVM.Classes.ToSymbols
 
-import Data.BitCode.LLVM.Value       (Symbol, Value)
+import Data.BitCode.LLVM.Value       (Symbol)
 import Data.BitCode.LLVM.Instruction (Inst)
 
 -- | Function declarations are set of so called basic blocks,

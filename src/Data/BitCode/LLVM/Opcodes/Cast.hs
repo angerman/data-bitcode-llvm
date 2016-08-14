@@ -18,4 +18,4 @@ data CastOp
   | INTTOPTR -- 10
   | BITCAST -- 11
   | ADDRSPACECAST -- 12
-  deriving (Show, Enum, Eq)
+  deriving (Show, Enum, Eq, Ord)

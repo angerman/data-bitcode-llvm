@@ -9,5 +9,5 @@ data Visibility
   | Hidden -- 1
   -- | The GV is protected
   | Protected -- 2
-  deriving (Eq, Enum, Show)
+  deriving (Eq, Enum, Ord, Show)
 

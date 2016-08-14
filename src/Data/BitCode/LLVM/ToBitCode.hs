@@ -4,10 +4,12 @@ module Data.BitCode.LLVM.ToBitCode where
 
 import Data.BitCode (NBitCode, mkBlock, mkRec, mkEmptyRec, bitWidth)
 import Data.BitCode.LLVM
+import Data.BitCode.LLVM.Util
 import Data.BitCode.LLVM.Function
+import Data.BitCode.LLVM.Classes.HasType
 import qualified Data.BitCode.LLVM.Value as V (Const(..), Value(..), Symbol(..), symbolValue)
 import qualified Data.BitCode.LLVM.Type  as T (Ty(..), subTypes)
-import qualified Data.BitCode.LLVM.Instruction as I (Inst(..), instTy)
+import qualified Data.BitCode.LLVM.Instruction as I (Inst(..), TailCallKind(..))
 import Data.BitCode.LLVM.Flags
 
 import Data.BitCode.LLVM.IDs.Blocks
@@ -35,7 +37,9 @@ import Data.BitCode.Writer (emitTopLevel)
 import Data.BitCode.Writer.Monad (evalBitCodeWriter, ask)
 
 import Data.BitCode.LLVM.Pretty
-
+import Data.BitCode.LLVM.Util
+import Text.PrettyPrint ((<+>), text, (<>), int)
+import Control.Applicative ((<|>))
 --------------------------------------------------------------------------------
 -- Turn things into NBitCode.
 --
@@ -68,24 +72,44 @@ instance {-# OVERLAPPING #-} ToNBitCode [T.Ty] where
           mkTypeRec T.Label                  = [ mkEmptyRec TC.LABEL ]
           mkTypeRec (T.Opaque name)          = [ mkRec TC.STRUCT_NAME name, mkEmptyRec TC.OPAQUE ]
           mkTypeRec (T.Int w)                = [ mkRec TC.INTEGER [w] ]
-          mkTypeRec (T.Ptr s t)              = [ mkRec TC.POINTER [lookupIndex tys t, s] ]
+          mkTypeRec (T.Ptr s t)              = [ mkRec TC.POINTER [lookupTypeIndex tys t, s] ]
           mkTypeRec T.Half                   = [ mkEmptyRec TC.HALF ]
-          mkTypeRec (T.Array n t)            = [ mkRec TC.ARRAY [n, lookupIndex tys t] ]
-          mkTypeRec (T.Vector n t)           = [ mkRec TC.VECTOR [n, lookupIndex tys t] ]
+          mkTypeRec (T.Array n t)            = [ mkRec TC.ARRAY [n, lookupTypeIndex tys t] ]
+          mkTypeRec (T.Vector n t)           = [ mkRec TC.VECTOR [n, lookupTypeIndex tys t] ]
           mkTypeRec T.X86Fp80                = [ mkEmptyRec TC.X86_FP80 ]
           mkTypeRec T.Fp128                  = [ mkEmptyRec TC.FP128 ]
           mkTypeRec T.Metadata               = [ mkEmptyRec TC.METADATA ]
           mkTypeRec T.X86Mmx                 = [ mkEmptyRec TC.X86_MMX ]
-          mkTypeRec (T.StructAnon p ts)      = [ mkRec TC.STRUCT_ANON ((if p then 1 else 0  :: Int):map (lookupIndex tys) ts) ]
-          mkTypeRec (T.StructNamed name p ts)= [ mkRec TC.STRUCT_NAME name, mkRec TC.STRUCT_NAMED ((if p then 1 else 0 :: Int):map (lookupIndex tys) ts) ]
-          mkTypeRec (T.Function vargs t ts)  = [ mkRec TC.FUNCTION ((if vargs then 1 else 0::Int):map (lookupIndex tys) (t:ts)) ]
+          mkTypeRec (T.StructAnon p ts)      = [ mkRec TC.STRUCT_ANON ((if p then 1 else 0  :: Int):map (lookupTypeIndex tys) ts) ]
+          mkTypeRec (T.StructNamed name p ts)= [ mkRec TC.STRUCT_NAME name, mkRec TC.STRUCT_NAMED ((if p then 1 else 0 :: Int):map (lookupTypeIndex tys) ts) ]
+          mkTypeRec (T.Function vargs t ts)  = [ mkRec TC.FUNCTION ((if vargs then 1 else 0::Int):map (lookupTypeIndex tys) (t:ts)) ]
           mkTypeRec T.Token                  = [ mkEmptyRec TC.TOKEN ]
 
-lookupIndex :: (Pretty a, Eq a, Show a, Integral b) => [a] -> a -> b
-lookupIndex xs x = case elemIndex x xs of
-  Just i -> fromIntegral i
-  Nothing -> error $ "Unable to find " ++ (show $ pretty x) ++ " in " ++ (show $ map pretty xs)
 
+
+
+lookupIndexGeneric :: (Pretty a, Eq a, Show a, Integral b) => [a] -> a -> b
+lookupIndexGeneric xs x = case elemIndex x xs of
+  Just i -> fromIntegral i
+  Nothing -> error . show $ text "Unable to find" <+> pretty x <+> text "in" <+> pretty xs
+
+lookupTypeIndex :: Integral b => [T.Ty] -> T.Ty -> b
+lookupTypeIndex ts t = case elemIndex t ts of
+  Just i  -> fromIntegral i
+  Nothing -> error . show $ text "Unable to find type" <+> pretty t <+> text "in" <+> pretty ts
+
+lookupValueIndex :: Integral b => [V.Value] -> V.Value -> b
+lookupValueIndex vs f@(V.Function{..}) = case (elemIndex f vs) <|> (elemIndex f { V.fIsProto = not fIsProto } vs) of
+  Just i  -> fromIntegral i
+  Nothing -> error . show $ text "Unable to find function" <+> pretty f <+> text "in" <+> pretty vs
+lookupValueIndex vs v = case elemIndex v vs of
+  Just i  -> fromIntegral i
+  Nothing -> error . show $ text "Unable to find value" <+> pretty v <+> text "in" <+> pretty vs
+
+lookupSymbolIndex :: Integral b => [V.Symbol] -> V.Symbol -> b
+lookupSymbolIndex ss s = case elemIndex s ss of
+  Just i  -> fromIntegral i
+  Nothing -> error . show $ text "Unable to find symbol" <+> pretty s <+> text "in" <+> pretty ss
 
 -- We *can not* have ToNBitCode Module, as we
 -- need to know the position in the bitcode stream.
@@ -127,25 +151,22 @@ instance ToNBitCode (Maybe Ident, Module) where
                      toBitCode allTypes ++
                      [ mkRec MC.TRIPLE t | Just t <- [mTriple] ] ++
                      [ mkRec MC.DATALAYOUT dl | Just dl <- [mDatalayout] ] ++
-                     mkConstBlock constants constants ++
-                     map mkGlobalRec globals ++
-                     map mkFunctionRec functions
+                     mkConstBlock constantSymbols constantSymbols ++
+                     map mkGlobalRec (map V.symbolValue globalSymbols) ++
+                     map mkFunctionRec (map V.symbolValue functionSymbols)
       nBitCodeLength :: [NBitCode] -> (Int,Int)
       nBitCodeLength nbc = evalBitCodeWriter $ (emitTopLevel . map denormalize $ nbc) >> ask
       --------------------------------------------------------------------------
       -- globals
       globalSymbols = [ g | g@(V.Named _ (V.Global{})) <- mValues] ++
                       [ g | g@(V.Unnamed (V.Global{})) <- mValues]
-      globals = map V.symbolValue globalSymbols
       -- functions
       functionSymbols = [ f | f@(V.Named _ (V.Function{})) <- mValues] ++
                         [ f | f@(V.Unnamed (V.Function{})) <- mValues]
-      functions = map V.symbolValue functionSymbols
       -- TODO: aliases??
       -- constants
       constantSymbols = sortOn (V.cTy . V.symbolValue) $ [ c | c@(V.Named _ (V.Constant{})) <- mValues] ++
                                                          [ c | c@(V.Unnamed (V.Constant{})) <- mValues]
-      constants = map V.symbolValue constantSymbols
       -- The types used in the module.
       topLevelTypes = nub . sort . map ty . symbols $ m
       -- all types contains all types including those that types reference. (e.g. i8** -> i8**, i8*, and i8)
@@ -153,29 +174,32 @@ instance ToNBitCode (Maybe Ident, Module) where
 
 
       -- | Turn a set of Constant Values unto BitCode Records.
-      mkConstBlock :: [V.Value] -- ^ values that can be referenced.
-                   -> [V.Value] -- ^ the constants to turn into BitCode
+      mkConstBlock :: [V.Symbol] -- ^ values that can be referenced.
+                   -> [V.Symbol] -- ^ the constants to turn into BitCode
                    -> [NBitCode]
-      mkConstBlock values consts | length consts > 0 = [ mkBlock CONSTANTS $ concatMap f (groupBy ((==) `on` V.cTy) consts) ]
+      mkConstBlock values consts | length consts > 0 = [ mkBlock CONSTANTS $ concatMap f (groupBy ((==) `on` (V.cTy . V.symbolValue)) consts) ]
                                  | otherwise = []
-        where f [] = []
-              f ((V.Constant t c):cs) = (mkRec CC.CST_CODE_SETTYPE (lookupIndex allTypes t :: Int)):mkConstRec values c:map (mkConstRec values . V.cConst) cs
-      mkConstRec :: [V.Value] -> V.Const -> NBitCode
-      mkConstRec constants V.Null         = mkEmptyRec CC.CST_CODE_NULL
-      mkConstRec constants V.Undef        = mkEmptyRec CC.CST_CODE_UNDEF
-      mkConstRec constants (V.Int n)      = mkRec CC.CST_CODE_INTEGER (fromSigned n)
-      mkConstRec constants (V.WideInt ns) = mkRec CC.CST_CODE_WIDE_INTEGER (map fromSigned ns)
+        where
+          f :: [V.Symbol] -> [NBitCode]
+          f [] = []
+          f (s:cs) | (V.Constant t c) <- V.symbolValue s = (mkRec CC.CST_CODE_SETTYPE (lookupTypeIndex allTypes t :: Int)):mkConstRec values c:map (mkConstRec values . V.cConst . V.symbolValue) cs
+                   | otherwise = error $ "Invalid constant " ++ show s
+      mkConstRec :: [V.Symbol] -> V.Const -> NBitCode
+      mkConstRec constantSymbols V.Null         = mkEmptyRec CC.CST_CODE_NULL
+      mkConstRec constantSymbols V.Undef        = mkEmptyRec CC.CST_CODE_UNDEF
+      mkConstRec constantSymbols (V.Int n)      = mkRec CC.CST_CODE_INTEGER (fromSigned n)
+      mkConstRec constantSymbols (V.WideInt ns) = mkRec CC.CST_CODE_WIDE_INTEGER (map fromSigned ns)
       -- TODO: Float encoding?
 --      mkConstRec constants (Float f) = mkRect CC.CST_CODE_FLOAT f
       -- TODO: Support aggregates (lookup value numbers in Constants? + Globals + Functions?)
 --      mkConstRec constants (Aggregate valueNs)
-      mkConstRec constants (V.String s) = mkRec CC.CST_CODE_STRING s
-      mkConstRec constants (V.CString s) = mkRec CC.CST_CODE_CSTRING s
+      mkConstRec constantSymbols (V.String s) = mkRec CC.CST_CODE_STRING s
+      mkConstRec constantSymbols (V.CString s) = mkRec CC.CST_CODE_CSTRING s
       -- XXX BinOp, Cast, Gep, Select, ExtractElt, InsertElt, ShuffleVec, Cmp, InlineAsm, ShuffleVecEx,
-      mkConstRec constants (V.InboundsGep t symbls)
+      mkConstRec constantSymbols (V.InboundsGep t symbls)
         = mkRec CC.CST_CODE_CE_INBOUNDS_GEP $
-          (lookupIndex allTypes t :: Int):zip' (map (lookupIndex allTypes . ty . V.symbolValue) symbls)
-                                               (map (lookupIndex constants . V.symbolValue) symbls)
+          (lookupTypeIndex allTypes t :: Int):zip' (map (lookupTypeIndex allTypes . ty) symbls)
+                                               (map (lookupSymbolIndex constantSymbols) symbls)
 
       -- signedness encoding.
       -- see `toSigned` in FromBitCode.
@@ -194,9 +218,9 @@ instance ToNBitCode (Maybe Ident, Module) where
       fromEnum' = fromIntegral . fromEnum
 
       mkGlobalRec :: V.Value -> NBitCode
-      mkGlobalRec (V.Global{..}) = mkRec MC.GLOBALVAR [ lookupIndex allTypes t -- NOTE: We store the pointee type.
+      mkGlobalRec (V.Global{..}) = mkRec MC.GLOBALVAR [ lookupTypeIndex allTypes t -- NOTE: We store the pointee type.
                                                       , 1 .|. shift (bool gIsConst) 1 .|. shift gAddressSpace 2
-                                                      , fromMaybe 0 ((+1) . lookupIndex constants <$> gInit)
+                                                      , fromMaybe 0 ((+1) . lookupSymbolIndex constantSymbols <$> gInit)
                                                       , fromEnum' gLinkage
                                                       , gParamAttrs
                                                       , gSection
@@ -210,7 +234,7 @@ instance ToNBitCode (Maybe Ident, Module) where
                                    where (T.Ptr _ t) = gPointerType
 
       mkFunctionRec :: V.Value -> NBitCode
-      mkFunctionRec (V.Function{..}) = mkRec MC.FUNCTION [ lookupIndex allTypes t -- NOTE: Similar to Globals we store the pointee type.
+      mkFunctionRec (V.Function{..}) = mkRec MC.FUNCTION [ lookupTypeIndex allTypes t -- NOTE: Similar to Globals we store the pointee type.
                                                          , fromEnum' fCallingConv
                                                          , bool fIsProto
                                                          , fromEnum' fLinkage
@@ -263,16 +287,20 @@ instance ToNBitCode (Maybe Ident, Module) where
           -- TODO: Use better mappendable DataStructure.
           (reverse . snd $ foldl mkInstRecFold (0,[]) (concatMap blockInstructions bbs))
         where -- function arguments
-              fArgTys = T.teParamTy (T.tePointeeTy (V.fType (V.symbolValue sig)))
-              fArgs = map V.Arg fArgTys
+              fArgTys = funParamTys (V.fType (V.symbolValue sig))
+              fArgs = map (V.Unnamed . V.Arg) fArgTys
               -- function local constant
-              fconstants = sortOn V.cTy [c | c@(V.Constant{}) <- map V.symbolValue consts]
+              fconstants :: [V.Symbol]
+              fconstants = sortOn (V.cTy . V.symbolValue) (filter isConst consts)
+              isConst :: V.Symbol -> Bool
+              isConst c | (V.Constant{}) <- V.symbolValue c = True
+                        | otherwise                         = False
               -- the values the body can reference.
-              bodyVals :: [V.Value]
+              bodyVals :: [V.Symbol]
               -- constants, globals, functions (because we order them that way)
               -- plus fargs and fconstants per function body ontop of which are
               -- the references generated by the instructions will be placed.
-              bodyVals = constants ++ globals ++ functions ++ fArgs ++ fconstants
+              bodyVals = constantSymbols ++ globalSymbols ++ functionSymbols ++ fArgs ++ fconstants
               nBodyVals = length bodyVals
 
               blockInstructions :: BasicBlock -> [I.Inst]
@@ -280,7 +308,7 @@ instance ToNBitCode (Maybe Ident, Module) where
               blockInstructions (NamedBlock _ insts) = map snd insts
 
               -- instruction values (e.g. values generated by instructions)
-              instVals = map (uncurry V.TRef) $ zip [t | Just t <- map I.instTy (concatMap blockInstructions bbs)] [0..]
+              instVals = map (V.Unnamed . (uncurry V.TRef)) $ zip [t | Just t <- map instTy (concatMap blockInstructions bbs)] [0..]
 
               -- all values. This will be used to lookup indices for values in.
               allVals = bodyVals ++ instVals
@@ -292,14 +320,13 @@ instance ToNBitCode (Maybe Ident, Module) where
 
               -- Relative Symbol lookup
               lookupRelativeSymbolIndex :: (Integral a)
-                                        => [V.Value] -- ^ values prior to entering the instruction block
-                                        -> [V.Value] -- ^ instruction values
-                                        -> Int      -- ^ current instruction count
+                                        => [V.Symbol] -- ^ values prior to entering the instruction block
+                                        -> [V.Symbol] -- ^ instruction values
+                                        -> Int       -- ^ current instruction count
                                         -> V.Symbol   -- ^ the symbol to lookup
                                         -> a
-              lookupRelativeSymbolIndex vs ivs iN s = fromIntegral $ vN + iN - lookupIndex vals v
-                where v = V.symbolValue s
-                      vN = length vs
+              lookupRelativeSymbolIndex vs ivs iN s = fromIntegral $ vN + iN - lookupSymbolIndex vals s
+                where vN = length vs
                       vals = vs ++ ivs
 
               lookupRelativeSymbolIndex' :: (Integral a) => Int -> V.Symbol -> a
@@ -312,39 +339,53 @@ instance ToNBitCode (Maybe Ident, Module) where
                                                                              , fromEnum' op
                                                                              , foldl setBit (0 :: Int) (map flagValue flags)
                                                                              ]
+              -- TODO: There should be valueTypePair :: Int -> Symbol -> [_]
+              --       which encodes a Symbol that has an index < n just
+              --       as the symbol, and otherwise as valueNumber, TypeIndex.
+              --       The `getValueType` function in the reader does precisely this
+              --       in the inverse way.
+              mkInstRec n (I.Cast t op s) = mkRec FC.INST_CAST [ traceShow (pretty s <> text "@" <> int (relSymbolIndex - n)) $ relSymbolIndex
+--                                                               , lookupTypeIndex allTypes (ty s)
+                                                               , lookupTypeIndex allTypes t
+                                                               , fromEnum' op :: Int
+                                                               ]
+                where
+                  relSymbolIndex = lookupRelativeSymbolIndex' n s
               -- TODO: If we want to support InAlloca, we need to extend Alloca. For now we will not set the flag.
-              mkInstRec n (I.Alloca t s a) = mkRec FC.INST_ALLOCA [ lookupIndex allTypes (T.tePointeeTy t)
-                                                                  , lookupIndex allTypes . ty . V.symbolValue $ s
-                                                                  , lookupIndex allVals (V.symbolValue s)
+              mkInstRec n (I.Alloca t s a) = mkRec FC.INST_ALLOCA [ lookupTypeIndex allTypes (lower t)
+                                                                  , lookupTypeIndex allTypes . ty $ s
+                                                                  , lookupSymbolIndex allVals s
                                                                   , explicitTypeMask .|. bitWidth a
                                                                   ]
               -- TODO: Support Volatile flag
+              -- Verify that t is (lower (ty s)).
               mkInstRec n (I.Load _ s a) = mkRec FC.INST_LOAD [ lookupRelativeSymbolIndex' n s
-                                                              , lookupIndex allTypes . T.tePointeeTy . ty . V.symbolValue $ s
+                                                              , lookupTypeIndex allTypes . lower . ty $ s
                                                               , bitWidth a
                                                               , 0
                                                               ]
               -- TODO: Support Volatile flag
               mkInstRec n (I.Store ref val a) = mkRec FC.INST_STORE [ lookupRelativeSymbolIndex' n ref
-                                                                              , lookupRelativeSymbolIndex' n val
-                                                                              , bitWidth a
-                                                                              , 0
-                                                                              ]
+                                                                    , lookupRelativeSymbolIndex' n val
+                                                                    , bitWidth a
+                                                                    , 0
+                                                                    ]
+
               -- TODO: Support FMF and Explicit Type flags explicitly
               -- XXX: Call needs paramAttrs! -- Can use 0 for empty param set.
-              mkInstRec n (I.Call _ fn args) = mkRec FC.INST_CALL $ [ (0 :: Int) -- Fix PARAMATTR
-                                                                               , fromEnum' (V.fCallingConv (V.symbolValue fn)) .|. (setBit 0 (fromEnum' CALL_EXPLICIT_TYPE))
-                                                                               , lookupIndex allTypes fnTy
-                                                                               , lookupRelativeSymbolIndex' n fn
+              mkInstRec n (I.Call _ tck cc s fnTy args) = mkRec FC.INST_CALL $ [ (0 :: Int) -- Fix PARAMATTR
+                                                                               , cconv .|. explTy .|. tcKind
+                                                                               -- FMF
+                                                                               , lookupTypeIndex allTypes (lower fnTy)
+                                                                               , lookupRelativeSymbolIndex' n s
                                                                                ] ++ map (lookupRelativeSymbolIndex' n) args
-                                                where
-                                                  -- We encode the result type of a call in the first
-                                                  -- position of Call.  The (explicitly typed) call
-                                                  -- instruction however wants to know what the type of
-                                                  -- the called function is.  The function type though is
-                                                  -- a pointer, hence we need to extract the underlying
-                                                  -- type from the pointer that the function type is.
-                                                  fnTy = T.tePointeeTy (V.fType (V.symbolValue fn))
+                                                          where cconv  = shift (fromEnum' cc) (fromEnum CALL_CCONV)
+                                                                explTy = setBit 0 (fromEnum' CALL_EXPLICIT_TYPE)
+                                                                tcKind = case tck of
+                                                                           I.None     -> 0
+                                                                           I.Tail     -> setBit 0 (fromEnum' CALL_TAIL)
+                                                                           I.MustTail -> setBit 0 (fromEnum' CALL_MUSTTAIL)
+                                                                           I.NoTail   -> setBit 0 (fromEnum' CALL_NOTAIL)
 
               mkInstRec n (I.Cmp2 _ lhs rhs pred) = mkRec FC.INST_CMP2 [ lookupRelativeSymbolIndex' n lhs
                                                                                  , lookupRelativeSymbolIndex' n rhs
@@ -352,78 +393,19 @@ instance ToNBitCode (Maybe Ident, Module) where
                                                                                  ]
 
               mkInstRec n (I.Gep ty inbounds base idxs) = mkRec FC.INST_GEP $ [ (bool inbounds) :: Int
-                                                                                        , lookupIndex allTypes ty]
+                                                                              , lookupTypeIndex allTypes (lower ty)]
                                                           ++ map (lookupRelativeSymbolIndex' n) (base:idxs)
 
               mkInstRec n (I.Ret (Just val)) = mkRec FC.INST_RET [ lookupRelativeSymbolIndex' n val :: Int ]
               mkInstRec n (I.Ret Nothing)    = mkEmptyRec FC.INST_RET
               mkInstRec n (I.UBr bbId)       = mkRec FC.INST_BR [bbId]
               mkInstRec n (I.Br val bbId bbId') = mkRec FC.INST_BR [ bbId
-                                                                             , bbId'
-                                                                             , lookupRelativeSymbolIndex' n val
-                                                                             ]
+                                                                   , bbId'
+                                                                   , lookupRelativeSymbolIndex' n val
+                                                                   ]
               mkInstRec n i = error $ "Instruction " ++ (show i) ++ " not yet supported."
               -- Fold helper to keep track of the instruction count.
               mkInstRecFold :: (Int, [NBitCode]) -> I.Inst -> (Int, [NBitCode])
-              mkInstRecFold (n, codes) inst = case I.instTy inst of
+              mkInstRecFold (n, codes) inst = case instTy inst of
                 Just _ -> (n+1,mkInstRec n inst:codes)
                 Nothing -> (n, mkInstRec n inst:codes)
-
--- X = [NBlock 13 [NRec 1 [65,80,80,76,69,95,49,95,55,48,51,46,48,46,51,49,95,48],NRec 2 [0]]
---     ,NBlock 8
---      [NRec 1 [1]
---      ,NBlock 10 [NRec 3 [1,4294967295,0,18,0,26,0,33,4,100,105,115,97,98,108,101,45,116,97,105,108,45,99,97,108,108,115,0,102,97,108,115,101,0,4,108,101,115,115,45,112,114,101,99,105,115,101,45,102,112,109,97,100,0,102,97,108,115,101,0,4,110,111,45,102,114,97,109,101,45,112,111,105,110,116,101,114,45,101,108,105,109,0,116,114,117,101,0,3,110,111,45,102,114,97,109,101,45,112,111,105,110,116,101,114,45,101,108,105,109,45,110,111,110,45,108,101,97,102,0,4,110,111,45,105,110,102,115,45,102,112,45,109,97,116,104,0,102,97,108,115,101,0,4,110,111,45,110,97,110,115,45,102,112,45,109,97,116,104,0,102,97,108,115,101,0,4,115,116,97,99,107,45,112,114,111,116,101,99,116,111,114,45,98,117,102,102,101,114,45,115,105,122,101,0,56,0,4,116,97,114,103,101,116,45,99,112,117,0,99,111,114,101,50,0,4,116,97,114,103,101,116,45,102,101,97,116,117,114,101,115,0,43,99,120,49,54,44,43,102,120,115,114,44,43,109,109,120,44,43,115,115,101,44,43,115,115,101,50,44,43,115,115,101,51,44,43,115,115,115,101,51,0,4,117,110,115,97,102,101,45,102,112,45,109,97,116,104,0,102,97,108,115,101,0,4,117,115,101,45,115,111,102,116,45,102,108,111,97,116,0,102,97,108,115,101,0]
---                 ,NRec 3 [2,4294967295,4,100,105,115,97,98,108,101,45,116,97,105,108,45,99,97,108,108,115,0,102,97,108,115,101,0,4,108,101,115,115,45,112,114,101,99,105,115,101,45,102,112,109,97,100,0,102,97,108,115,101,0,4,110,111,45,102,114,97,109,101,45,112,111,105,110,116,101,114,45,101,108,105,109,0,116,114,117,101,0,3,110,111,45,102,114,97,109,101,45,112,111,105,110,116,101,114,45,101,108,105,109,45,110,111,110,45,108,101,97,102,0,4,110,111,45,105,110,102,115,45,102,112,45,109,97,116,104,0,102,97,108,115,101,0,4,110,111,45,110,97,110,115,45,102,112,45,109,97,116,104,0,102,97,108,115,101,0,4,115,116,97,99,107,45,112,114,111,116,101,99,116,111,114,45,98,117,102,102,101,114,45,115,105,122,101,0,56,0,4,116,97,114,103,101,116,45,99,112,117,0,99,111,114,101,50,0,4,116,97,114,103,101,116,45,102,101,97,116,117,114,101,115,0,43,99,120,49,54,44,43,102,120,115,114,44,43,109,109,120,44,43,115,115,101,44,43,115,115,101,50,44,43,115,115,101,51,44,43,115,115,115,101,51,0,4,117,110,115,97,102,101,45,102,112,45,109,97,116,104,0,102,97,108,115,101,0,4,117,115,101,45,115,111,102,116,45,102,108,111,97,116,0,102,97,108,115,101,0]]
---      ,NBlock 9 [NRec 2 [1],NRec 2 [2]]
---      ,NBlock 17 [NRec 1 [14],NRec 7 [8],NRec 11 [13,0],NRec 8 [1,0],NRec 7 [32],NRec 8 [0,0],NRec 8 [4,0],NRec 21 [0,3,3,5],NRec 8 [6,0],NRec 21 [1,3,4],NRec 8 [8,0],NRec 16 [],NRec 8 [3,0],NRec 8 [5,0],NRec 2 []]
---      ,NRec 2 [120,56,54,95,54,52,45,97,112,112,108,101,45,109,97,99,111,115,120,49,48,46,49,49,46,48]
---      ,NRec 3 [101,45,109,58,111,45,105,54,52,58,54,52,45,102,56,48,58,49,50,56,45,110,56,58,49,54,58,51,50,58,54,52,45,83,49,50,56]
---      ,NRec 7 [1,3,4,9,1,0,0,0,1,0,0,0]
---      ,NRec 8 [6,0,0,0,1,0,0,0,0,0,0,0,0,0,0]
---      ,NRec 8 [8,0,1,0,2,0,0,0,0,0,0,0,0,0,0]
---      ,NRec 13 [470]
---      ,NBlock 11 [NRec 1 [1],NRec 9 [104,101,108,108,111,32,119,111,114,108,100,10],NRec 1 [3],NRec 4 [2],NRec 4 [4]]
---      ,NBlock 15 [NRec 2 [3,4]
---                 ,NRec 1 [80,73,67,32,76,101,118,101,108]
---                 ,NRec 2 [3,5]
---                 ,NRec 3 [1,2,3]
---                 ,NRec 1 [65,112,112,108,101,32,76,76,86,77,32,118,101,114,115,105,111,110,32,55,46,51,46,48,32,40,99,108,97,110,103,45,55,48,51,46,48,46,51,49,41]
---                 ,NRec 3 [5]
---                 ,NRec 4 [108,108,118,109,46,109,111,100,117,108,101,46,102,108,97,103,115]
---                 ,NRec 10 [3]
---                 ,NRec 4 [108,108,118,109,46,105,100,101,110,116]
---                 ,NRec 10 [5]]
---      ,NBlock 15 [NRec 6 [0,100,98,103]
---                 ,NRec 6 [1,116,98,97,97]
---                 ,NRec 6 [2,112,114,111,102]
---                 ,NRec 6 [3,102,112,109,97,116,104]
---                 ,NRec 6 [4,114,97,110,103,101]
---                 ,NRec 6 [5,116,98,97,97,46,115,116,114,117,99,116]
---                 ,NRec 6 [6,105,110,118,97,114,105,97,110,116,46,108,111,97,100]
---                 ,NRec 6 [7,97,108,105,97,115,46,115,99,111,112,101]
---                 ,NRec 6 [8,110,111,97,108,105,97,115]
---                 ,NRec 6 [9,110,111,110,116,101,109,112,111,114,97,108]
---                 ,NRec 6 [10,108,108,118,109,46,109,101,109,46,112,97,114,97,108,108,101,108,95,108,111,111,112,95,97,99,99,101,115,115]
---                 ,NRec 6 [11,110,111,110,110,117,108,108]
---                 ,NRec 6 [12,100,101,114,101,102,101,114,101,110,99,101,97,98,108,101]
---                 ,NRec 6 [13,100,101,114,101,102,101,114,101,110,99,101,97,98,108,101,95,111,114,95,110,117,108,108]
---                 ,NRec 6 [14,109,97,107,101,46,105,109,112,108,105,99,105,116]
---                 ,NRec 6 [15,117,110,112,114,101,100,105,99,116,97,98,108,101]
---                 ,NRec 6 [16,105,110,118,97,114,105,97,110,116,46,103,114,111,117,112]
---                 ,NRec 6 [17,97,108,105,103,110]]
---      ,NBlock 12 [NRec 1 [1]
---                 ,NBlock 11 [NRec 1 [3]
---                            ,NRec 2 []
---                            ,NRec 1 [4]
---                            ,NRec 20 [1,2,0,3,8,3,8]]
---                 ,NRec 19 [3,3,4,67]
---                 ,NRec 19 [5,3,4,68]
---                 ,NRec 44 [2,6,3,0]
---                 ,NRec 44 [1,5,4,0]
---                 ,NRec 34 [0,32768,8,10,3]
---                 ,NRec 10 [5]
---                 ,NBlock 14 [NRec 1 [7,97,114,103,118]
---                            ,NRec 1 [6,97,114,103,99]]]
---      ,NBlock 14 [NRec 1 [2,112,114,105,110,116,102]
---                 ,NRec 3 [1,448,109,97,105,110]
---                 ,NRec 1 [0,46,115,116,114]]]]

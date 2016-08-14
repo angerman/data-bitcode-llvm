@@ -20,4 +20,4 @@ data BinOp
   | AND -- 10
   | OR -- 11
   | XOR -- 12
-  deriving (Show, Enum, Eq)
+  deriving (Show, Enum, Eq, Ord)

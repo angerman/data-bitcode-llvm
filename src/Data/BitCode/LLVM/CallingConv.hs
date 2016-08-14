@@ -15,4 +15,4 @@ data CallingConv
   | Swift        -- 16
   | CxxFastTls   -- 17
   -- NOTE: There are more (64...)
-  deriving (Eq, Enum, Show)
+  deriving (Eq, Enum, Ord, Show)

@@ -1,4 +1,7 @@
-resolver: lts-6.10
+resolver: nightly-2016-08-06
 packages:
   - '.'
   - '../data-bitcode'
+
+system-ghc: true
+compiler: ghc-8.0.1

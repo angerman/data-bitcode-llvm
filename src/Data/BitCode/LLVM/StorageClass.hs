@@ -8,4 +8,4 @@ data DLLStorageClass
   | DLLImport -- 1
   -- | Function to be accessible from DLL.
   | DLLExport -- 2
-  deriving (Eq, Enum, Show)
+  deriving (Eq, Enum, Ord, Show)

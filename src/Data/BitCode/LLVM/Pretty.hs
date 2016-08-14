@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE RecordWildCards #-}
 module Data.BitCode.LLVM.Pretty where
@@ -18,8 +19,11 @@ import Data.BitCode.LLVM.CallingConv as C
 class Pretty a where
   pretty :: a -> Doc
 
+instance (Pretty a) => Pretty [a] where
+  pretty = hsep . punctuate comma . map pretty
+
 -- * Base types
-instance Pretty String where pretty = text
+instance {-# OVERLAPS #-} Pretty String where pretty = text
 instance Pretty Word64 where pretty = text . show
 
 instance (Pretty a) => Pretty (Maybe a) where
@@ -58,8 +62,8 @@ instance Pretty Symbol where
 -- * Types
 instance Pretty Ty where
   pretty Void = text "()"
-  pretty T.Float = text "f"
-  pretty Double = text "d"
+  pretty T.Float = text "float"
+  pretty Double = text "double"
   pretty Label = text "lbl"
   pretty (Opaque n) = text "opaque" <+> text n
   pretty (T.Int w) = char 'i' <> pretty w
@@ -80,7 +84,7 @@ instance Pretty Const where
   pretty Undef = text "undef"
   pretty (V.Int n) = int n
   pretty (V.WideInt ns) = brackets $ hsep (map int ns)
-  pretty (V.Float f) = float f
+  pretty (V.Float f) = text (show f)
   pretty (V.String s) = doubleQuotes $ text (escape s)
   pretty (V.CString s) = doubleQuotes $ text (escape s) <> text "\\0"
   pretty (V.InboundsGep t idxs) = parens $ text "getElemenentPointer inbounds" <+> parens (hsep . punctuate (text " !!") $ map pretty idxs) <+> text "::" <+> pretty t
@@ -116,15 +120,22 @@ instance Pretty (Maybe Symbol, Inst) where
 instance Pretty CallingConv where
   pretty c = text (map toLower (show c)) <> text "call"
 
+instance Pretty TailCallKind where
+  pretty None = empty
+  pretty Tail = text "tail"
+  pretty MustTail = text "must tail"
+  pretty NoTail = text "no tail"
+
 instance Pretty Inst where
   pretty (I.BinOp t o l r fs) = parens (pretty l) <+> text (map toLower $ show o) <+> vcat (map (text . map toLower . show) fs) <+> parens (pretty r) <+> text "::" <+> pretty t
   pretty (I.Cast t op v) = text "cast" <+> text (map toLower (show op)) <+> parens (pretty v) <+> text "::" <+> pretty t
   pretty (Alloca t v _) = text "alloca" <+> parens (pretty v) <+> text "::" <+> pretty t
   pretty (Load   t v _) = text "load" <+> parens (pretty v) <+> text "::" <+> pretty t
   pretty (Store  v r _) = pretty r <+> text "->" <+> pretty v
-  pretty (Call   t f args)
-    | f'@(V.Function{}) <- symbolValue f = pretty (fCallingConv f') <+> fromMaybe (char 'f') (text <$> symbolName f) <> parens (hsep . punctuate comma $ map pretty args) <+> text "::" <+> pretty t
-    | otherwise = text "Call without function symbol not yet supported."
+  pretty (Call   t tck cc s fty args)
+    | f'@(V.Function{}) <- symbolValue s = pretty tck <+> pretty cc <+> fromMaybe (char 'f') (text <$> symbolName s) <> parens (hsep . punctuate comma $ map pretty args) <+> text "::" <+> pretty t
+    | r'@(V.TRef{}) <- symbolValue s = pretty tck <+> pretty cc <+> pretty r' <> parens (hsep . punctuate comma $ map pretty args) <+> text "::" <+> pretty t
+    | otherwise = text "WARN: Call without function or ref symbol not yet supported; are you sure you want this?"
   pretty (Cmp2   t l r p)  = parens (pretty l) <+> text (show p) <+> parens (pretty r) <+> text "::" <+> pretty t
   pretty (I.Gep  t ib v idxs) = text "getElementPointer" <+> (if ib then text "inbounds" else empty) <+> pretty v <+> text "!!" <+> hcat (map pretty idxs)
   pretty (Ret v)       = text "ret" <+> parens (pretty v)

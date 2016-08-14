@@ -12,6 +12,7 @@ import qualified Data.BitCode.LLVM.Instruction as I
 import qualified Data.BitCode.LLVM.Value as V
 
 import Data.BitCode.LLVM.Classes.ToSymbols
+import Data.BitCode.LLVM.Classes.HasType
 
 import Data.Word (Word64)
 
@@ -53,19 +54,6 @@ data Module = Module
 
 instance ToSymbols Module where
   symbols (Module{..}) = mValues ++ mDecls ++ concatMap symbols mFns
-
-
-class HasType a where
-  ty :: a -> Ty
-
-instance HasType Value where
-  ty (V.Global{..}) = gPointerType
-  ty (V.Function{..}) = fType
-  ty (V.Alias{..}) = aType
-  ty (V.Constant t _) = t
-  ty (V.Arg t) = t
-  ty (V.Value t) = t
-  ty (V.TRef t _)= t
 
 instance HasType Symbol where
   ty = ty . symbolValue

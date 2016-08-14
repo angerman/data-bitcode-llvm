@@ -30,6 +30,7 @@ library
   exposed-modules:
       Data.BitCode.LLVM
       Data.BitCode.LLVM.CallingConv
+      Data.BitCode.LLVM.Classes.HasType
       Data.BitCode.LLVM.Classes.ToSymbols
       Data.BitCode.LLVM.Cmp
       Data.BitCode.LLVM.Codes.AtomicOrdering
@@ -67,6 +68,7 @@ library
       Data.BitCode.LLVM.ToBitCode
       Data.BitCode.LLVM.Type
       Data.BitCode.LLVM.Types
+      Data.BitCode.LLVM.Util
       Data.BitCode.LLVM.Value
       Data.BitCode.LLVM.Visibility
   default-language: Haskell2010

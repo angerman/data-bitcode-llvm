@@ -12,6 +12,8 @@ import Control.Monad (when, unless, foldM, foldM_)
 import Data.BitCode (NBitCode(..), normalize, records, blocks, lookupBlock, lookupRecord)
 import qualified Data.BitCode as BC
 import Data.BitCode.LLVM
+import Data.BitCode.LLVM.Util
+import Data.BitCode.LLVM.Classes.HasType
 import Data.BitCode.LLVM.Reader.Monad
 import Data.BitCode.LLVM.ParamAttr
 import Data.BitCode.LLVM.IDs.Blocks as B
@@ -133,6 +135,7 @@ parseTypes = foldM_ parseType Nothing . records
         parseType name = \case
           -- ignore number of entries record.
           (NUMENTRY,    [n]                    ) -> pure name
+          (NUMENTRY,    []                     ) -> error $ "Invalid record: empty NUMENTRY"
           (VOID,        []                     ) -> tellType Void                                                                     >> pure name
           (FLOAT,       []                     ) -> tellType T.Float                                                                  >> pure name
           (DOUBLE,      []                     ) -> tellType Double                                                                   >> pure name
@@ -140,22 +143,38 @@ parseTypes = foldM_ parseType Nothing . records
           (OPAQUE,      []                     )
             | (Just n) <- name                   -> tellType (Opaque n)                                                               >> pure Nothing
             | otherwise                          -> fail "Opaque needs a name!"
+          -- TODO: why does OPAQUE check Record.size() != 1, and if so result in Invalid record?
+          -- (OPAQUE,      [_]                    ) -> error $ "Invalid record: OPAQUE must not"
           (INTEGER,     [width]                ) -> (tellType $ T.Int width)                                                          >> pure name
+          (INTEGER,     []                     ) -> error $ "Invalid record: empty INTEGER"
+          -- TODO: Check that the resulting type is valid (!Void, !Label, !Metadata, !Token)
           (POINTER,     [tyId, width]          ) -> askType tyId >>= tellType . Ptr width                                             >> pure name
           (POINTER,     [tyId]                 ) -> askType tyId >>= tellType . Ptr 0                                                 >> pure name
+          (POINTER,     []                     ) -> error $ "Invalid record: empty POINTER"
           (HALF,        []                     ) -> tellType Half                                                                     >> pure name
+          -- TODO: Valid element types (!Void, !Label, !Metadata, !Function, !Token)
           (ARRAY,       [numElts, eltTyId]     ) -> askType eltTyId >>= tellType . T.Array numElts                                    >> pure name
+          (ARRAY,       x                      ) | length x < 2 -> error $ "Invalid record: ARRAY"
+          -- TODO: Valid element type (Integer, FloatingPoint, Pointer)
           (VECTOR,      [numElts, eltTyId]     ) -> askType eltTyId >>= tellType . T.Vector numElts                                   >> pure name
+          (VECTOR,      x                      ) | length x < 2 -> error $ "Invalid record: VECTOR"
           (X86_FP80,    []                     ) -> tellType X86Fp80                                                                  >> pure name
           (FP128,       []                     ) -> tellType Fp128                                                                    >> pure name
           (TC.METADATA, []                     ) -> tellType T.Metadata                                                               >> pure name
           (X86_MMX,     []                     ) -> tellType X86Mmx                                                                   >> pure name
+          -- TODO: Valid element type: (!Void, !Label, !Metadata, !Function, !Token)
+          -- TODO: Should also check that elemTyIds is the smae number after asking for the type (e.g. that askting for the type does not fail.)
           (STRUCT_ANON, (isPacked:eltTyIds)    ) -> mapM askType eltTyIds >>= tellType . StructAnon (isPacked /= 0)                   >> pure name
+          (STRUCT_ANON, []                     ) -> error $ "Invalid record: Anon struct must have at least one op."
           (STRUCT_NAME, ops                    ) -> pure (pure (toString ops))
           (STRUCT_NAMED,(isPacked:eltTyIds)    )
             | (Just n) <- name                   -> mapM askType eltTyIds >>= tellType . StructNamed n (isPacked /= 0)                >> pure Nothing
             | otherwise                          -> fail "Named Struct needs a name!"
+          (STRUCT_NAMED, []                    ) -> error $ "Invalid record: Named struct must have at least one op."
+          -- TODO: If the number of argument type does not match paramTys, this is an invalid record.
+          --       Must filter for isValidArgumentType (=isFirstClassType), (!Void, !Function)
           (TC.FUNCTION, (vararg:retTy:paramTys)) -> T.Function (vararg /= 0) <$> askType retTy <*> mapM askType paramTys >>= tellType >> pure name
+          (TC.FUNCTION, [_]                    ) -> error $ "Invalid record: FUNCTION must have at least two ops."
           (TOKEN,       []                     ) -> tellType Token                                                                    >> pure name
           (code,        ops                    ) -> fail $ "Can not handle type: " ++ show code ++ " with ops: " ++ show ops
         toString :: (Integral a) => [a]          -> String
@@ -178,14 +197,22 @@ parseConstants :: [NBitCode] -> LLVMReader ()
 parseConstants = foldM_ parseConstant undefined . records
   where parseConstant :: Ty -> (Constant,[BC.Val]) -> LLVMReader Ty
         parseConstant ty = \case
+          -- Also invalid record, if tyId outside of Typelist.
           (CST_CODE_SETTYPE, [tyId]) -> askType tyId
+          (CST_CODE_SETTYPE, []    ) -> error $ "Invalid record: empty constants SETTYPE."
           (CST_CODE_NULL,    []    ) -> add $ mkConst V.Null
           (CST_CODE_UNDEF,   []    ) -> add $ mkConst V.Undef
-          (CST_CODE_INTEGER, [val] ) -> add $ mkConst (V.Int (toSigned val))
-          (CST_CODE_WIDE_INTEGER, vals) -> add $ mkConst (V.WideInt (map toSigned vals))
+          (CST_CODE_INTEGER, [val] )    | T.Int{} <- ty -> add $ mkConst (V.Int (toSigned val))
+                                        | otherwise   -> error "Invalid record: INTEGER constant, but type is not Int"
+          (CST_CODE_INTEGER, []    ) -> error "Invalid record: INTEGER must have one op!"
+          (CST_CODE_WIDE_INTEGER, vals) | T.Int{} <- ty -> add $ mkConst (V.WideInt (map toSigned vals))
+                                        | otherwise   -> error "Invalid record: WIDE_INTEGER constant, but type is not Int"
+          (CST_CODE_WIDE_INTEGER, []  ) -> error "Invalid record: WIDE_INTEGER must have one op!"
 -- TODO: how do we interpret a Word64 as a FPVal?
 --          CST_CODE_FLOAT   -> let [val] = vals
 --                              in (++(ty, C.Float val)) <$> go ty rs
+          (CST_CODE_FLOAT, []    ) -> error "Invalid record: FLOAT must have one op!"
+          (CST_CODE_AGGREGATE, []) -> error "Invalid record: AGGREGATE must have at least one op!"
           (CST_CODE_AGGREGATE, valIds)
           -- XXX: We *assume*, but do not verify that the types of the askValue's actually match those of the structure.
             | T.StructAnon{}   <- ty -> add =<< mkConst <$> (V.Struct <$> mapM askValue valIds)
@@ -193,10 +220,20 @@ parseConstants = foldM_ parseConstant undefined . records
             | T.Array _ t      <- ty -> add =<< mkConst <$> (V.Array <$> mapM askValue valIds)
             | T.Vector _ t     <- ty -> add =<< mkConst <$> (V.Vector <$> mapM askValue valIds)
             | otherwise              -> add $ mkConst V.Undef
-          (CST_CODE_STRING, vals)  -> add $ mkConst (V.String $ map toEnum' vals)
+          (CST_CODE_STRING, []   ) -> error "Invalid record: STRING must have at least one op!"
+          (CST_CODE_STRING, vals ) -> add $ mkConst (V.String $ map toEnum' vals)
+          (CST_CODE_CSTRING, []  ) -> error "Invalid record: CSTRING must have at least one op!"
           (CST_CODE_CSTRING, vals) -> add $ mkConst (V.CString $ map toEnum' vals)
+          -- TODO: support Constant Binop with 4 operands.
           (CST_CODE_CE_BINOP, [code, lhs, rhs]) -> add =<< mkConst <$> (V.BinOp (toEnum' code) <$> askValue lhs <*> askValue rhs)
+          (CST_CODE_CE_BINOP, _) -> error "Invalid record: BINOP only suppored with exactly three ops!"
           (CST_CODE_CE_CAST, [ code, tyId, valId ]) -> add =<< mkConst <$> (V.Cast (toEnum' code) <$> askType tyId <*> askValue valId)
+          (CST_CODE_CE_BINOP, _) -> error "Invalid record: CAST only suppored with exactly three ops!"
+          -- TODO: proper parsing.
+          -- if even, assume pointee = nullptr
+          -- otherwise use first record.
+          -- the rest is [ty, val, ...], if type lookup fails -> Invalid record.
+          -- See INBOUNDS_GEP
           (CST_CODE_CE_GEP, vals)  -> add $ mkConst (V.Gep vals)
 -- TODO: CST_CODE_CE_SELECT
 --       CST_CODE_CE_EXTRACTELT
@@ -205,6 +242,7 @@ parseConstants = foldM_ parseConstant undefined . records
 --       CST_CODE_CE_CMP
 --       CST_CODE_CE_INLINEASM_OLD
 --       CST_CODE_CE_SHUFVEC_EX
+          -- see GEP.
           (CST_CODE_CE_INBOUNDS_GEP, (v:vs))
             -- either [t, [tyId, valId, ...]]
             | length vs `mod` 2 == 0 -> do
@@ -271,12 +309,12 @@ parseDataLayout = map toEnum'
 
 parseGlobalVar :: [BC.Val] -> LLVMReader ()
 parseGlobalVar vals
-  | length vals < 6 = error $ "Global Var must have at least six operands. " ++ show vals ++ " given."
+  | length vals < 6 = error $ "Invalid record: Global Var must have at least six operands. " ++ show vals ++ " given."
   | [ ptrTyId, isConst, initId, linkage, paramAttrId, section ] <- vals = do
       ty <- askType ptrTyId
       unless (testBit isConst 1) $ fail "non-explicit type global vars are not (yet) supported"
       let addressSpace = shift isConst (-2)
-          initVal      = if initId /= 0 then Just (FwdRef (initId -1)) else Nothing
+          initVal      = if initId /= 0 then Just (Unnamed (FwdRef (initId -1))) else Nothing
           linkage'     = toEnum' linkage
           storageClass = upgradeDLLImportExportLinkage linkage'
           comdat       = 0 -- XXX. the Reader does some weird hasImplicitComdat for older bitcode.
@@ -292,13 +330,16 @@ parseGlobalVar vals
       -- TODO: isConst has bit 0 set if const. bit 1 if explicit type. We only handle explicit type so far.
       unless (testBit isConst 1) $ fail "non-explicit type global vars are not (yet) supported"
       let addressSpace = shift isConst (-2)
-          initVal      = if initId /= 0 then Just (FwdRef (initId - 1)) else Nothing
+          initVal      = if initId /= 0 then Just (Unnamed (FwdRef (initId - 1))) else Nothing
 
       tellValue $ Global (Ptr 0 ty) (testBit isConst 0) addressSpace initVal
                          (toEnum' linkage) paramAttrId section (toEnum' visibility) (toEnum' threadLocalMode)
                          (unnamedAddr /= 0) (externallyInitialized /= 0) (toEnum' storageClass) comdat
   | otherwise = error $ "unhandled parseGlobalVar with values: " ++ (show vals)
 
+-- TODO: if less than eight values -> Invalid record.
+--       if type can not be reconstructed, invalid record.
+--       if ty can not be cast to function type. -> invalid value
 parseFunctionDecl :: [BC.Val] -> LLVMReader ()
 parseFunctionDecl
   [ tyId, cconv, isProto, linkage
@@ -367,7 +408,7 @@ parseTopLevel bs = do
   return (ident, mod)
 
 resolveFwdRefs :: [Symbol] -> [Symbol]
-resolveFwdRefs s = map (fmap' resolveFwdRef') s
+resolveFwdRefs ss = map (fmap' resolveFwdRef') ss
   where
     -- TODO: Maybe Symbol should be more generic? Symbol a,
     --       then we could have Functor Symbol.
@@ -376,8 +417,8 @@ resolveFwdRefs s = map (fmap' resolveFwdRef') s
     fmap' f (Unnamed v) = Unnamed (f v)
     resolveFwdRef' :: Value -> Value
     resolveFwdRef' g@(Global{..}) = case gInit of
-      Just (FwdRef id) -> g { gInit = Just $ symbolValue (s !! (fromIntegral id)) }
-      _                -> g
+      Just s | (FwdRef id) <- symbolValue s -> g { gInit = Just $ (ss !! (fromIntegral id)) }
+      _                                     -> g
     -- resolve fws refs only for globals for now.
     resolveFwdRef' x = x
 
@@ -574,11 +615,14 @@ foldHelper s@((BasicBlock insts):bbs,vs) instr = do
 parseInst :: [Symbol] -> (Instruction, [BC.Val]) -> LLVMReader (Maybe Inst)
 parseInst rs = \case
   -- 1
-  (DECLAREBLOCKS, _) -> pure Nothing -- ignore.
+  (DECLAREBLOCKS, x) | length x == 0 -> error "Invalid record: DECLAREBLOCKS must not be empty!"
+                     | x == [0]      -> error "Invalid record: DECLAREBLOCKS must not be 0."
+                     | otherwise -> pure Nothing -- ignore.
   -- 2
   (INST_BINOP, (lhs:rhs:code:flags)) -> traceShow flags $ do
     lhs <- getRelativeVal rs lhs
     rhs <- getRelativeVal rs rhs
+    unless ((ty lhs) == (ty rhs)) $ pure $ error "Invalid record: BINOP, LHS and RHS types do not agree."
     let opTy = ty (symbolValue lhs)
         code' = (toEnum' code) :: BinOp
         flags' = case flags of
@@ -587,6 +631,7 @@ parseInst rs = \case
             | code' `elem` [ADD, SUB, MUL, SHL] -> map Flags.Overflow $ filter (testBit bitfield . fromEnum) [Flags.NO_UNSIGNED_WRAP, Flags.NO_SIGNED_WRAP]
             | code' `elem` [UDIV, SDIV, LSHR, ASHR] -> map Flags.Exact $ filter (testBit bitfield . fromEnum) [Flags.EXACT]
             | otherwise -> []
+          _ -> error "Invalid record: At most one FLAG value allowed for BINOP."
 
     return $ Just (I.BinOp opTy code' lhs rhs flags')
   -- 3
@@ -594,6 +639,7 @@ parseInst rs = \case
     val <- getRelativeVal rs valId
     ty  <- askType tyId
     let op =  toEnum' opCode
+    -- TODO: if not ty or Opc = -1 -> Invalid Record
     return $ Just (I.Cast ty op val)
   -- 4
   -- (INST_GEP_OLD, vals)
@@ -615,11 +661,13 @@ parseInst rs = \case
   (INST_RET, [valId]) -> do
     val <- Just <$> getRelativeVal rs valId
     return . Just $ I.Ret val
+  (INST_RET, _) -> error "Invalid record: INST_RET can only have none or one op."
   -- 11
   (INST_BR, [bbN]) -> return . Just $ UBr bbN
   (INST_BR, [bbN, bbN', cond]) -> do
     cond' <- getRelativeVal rs cond
     return . Just $ Br cond' bbN bbN'
+  (INST_BR, _) -> error "Invalid record: INST_BR can only have one or three ops."
   -- 12
   (INST_SWITCH, (opTy:cond:defaultBlock:cases)) -> do
     ty <- askType opTy
@@ -642,12 +690,14 @@ parseInst rs = \case
     iTy <- askType instty
     oTy <- askType opty
     val <- askValue op -- probably a constant.
+    unless (oTy == ty val) $ pure $ error "Invalid record"
     return . Just $  Alloca (Ptr 0 iTy) val (decodeAlign align)
       where decodeAlign :: Word64 -> Word64
             decodeAlign a = 2^((a .&. (complement inAllocMask .|. explicitTypeMask .|. swiftErrorMask)) - 1)
             inAllocMask = shift 1 5
             explicitTypeMask = shift 1 6
             swiftErrorMask = shift 1 7
+  (INST_ALLOCA, _) -> error "Invalid record: ALLOCA expects exactly four ops!"
   -- 20
   (INST_LOAD, [ op, opty, align, vol]) -> do
     oTy <- askType opty
@@ -667,6 +717,7 @@ parseInst rs = \case
   (INST_CMP2, [lhs, rhs, pred]) -> do
     lhs' <- getRelativeVal rs lhs
     rhs' <- getRelativeVal rs rhs
+    unless (ty lhs' == ty rhs') $ pure $ error "Invalid record: CMP2 lhs and rhs types do not agree."
     -- result type is:
     --  if lhs is vector of n -> Vector <i1 x n>
     --  else                  -> i1
@@ -688,6 +739,12 @@ parseInst rs = \case
   (INST_CALL, (paramattr:cc:ops)) -> do
     let (fmf, ops') = if testBit cc (fromEnum Flags.CALL_FMF) then (Just (head ops), tail ops) else (Nothing, ops)
     let (explFnTy, ops') = if testBit cc (fromEnum Flags.CALL_EXPLICIT_TYPE) then (Just (head ops), tail ops) else (Nothing, ops)
+    let tailCallKind | testBit cc (fromEnum Flags.CALL_TAIL)     = Tail
+                     | testBit cc (fromEnum Flags.CALL_MUSTTAIL) = MustTail
+                     | testBit cc (fromEnum Flags.CALL_NOTAIL)   = NoTail
+                     | otherwise                                 = None
+    -- cconv is encoded in the bits 1 to 11.
+    let cconv = toEnum' (shift (cc .&. 0x7ff) (-1 * fromEnum Flags.CALL_CCONV))
     let (fnid:args) = ops'
     fn <- getRelativeVal rs fnid
 
@@ -696,7 +753,7 @@ parseInst rs = \case
       Nothing -> pure $ tePointeeTy (fType (symbolValue fn))
 
     args <- mapM (getRelativeVal rs) args
-    return . Just $ Call (teRetTy fnTy) fn args
+    return . Just $ Call (teRetTy fnTy) tailCallKind cconv fn fnTy args
   -- 35
   -- (DEBUG_LOC)
   -- 36
@@ -714,10 +771,11 @@ parseInst rs = \case
   -- 42
   -- (INST_STOREATOMIC_OLD, [ptrty, ptr, val, align, vol, odering, synchscope])
   -- 43
+  -- TODO: also GEP_OLD, and INBOUNDS_GEP_OLD, same parse though.
   (INST_GEP, (inbounds:opty:vs)) -> do
     oTy <- askType opty
     (val:idxs) <- mapM (getRelativeVal rs) vs
-    return . Just $ I.Gep oTy (inbounds /= 0) val idxs
+    return . Just $ I.Gep (lift oTy) (inbounds /= 0) val idxs
   -- 44
   (INST_STORE, [ ptr, val, align, vol ]) -> do
     ref <- getRelativeVal rs ptr
