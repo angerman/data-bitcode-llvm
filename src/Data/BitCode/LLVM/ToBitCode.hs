@@ -125,8 +125,8 @@ instance ToNBitCode (Maybe Ident, Module) where
                  --       We would need to be able to figure out the bitcode positions though.
                  -- NOTE: An initial attempt at that (see nBitCodeLength below), is missing
                  --       some vital ingredent.  See also the CODE_FNENTRY generation.
-                 traceShow "mkSymTab" [ mkSymTabBlock (globalSymbols ++ functionSymbols ++ constantSymbols) ] ++
-                 traceShow "mkFunctionBlock" (map mkFunctionBlock mFns) ++
+                 [ mkSymTabBlock (globalSymbols ++ functionSymbols ++ constantSymbols) ] ++
+                 (map mkFunctionBlock mFns) ++
                  []
       ]
     -- = pure $ mkBlock MODULE [ {- Record: Version 1 -}
@@ -212,7 +212,10 @@ instance ToNBitCode (Maybe Ident, Module) where
 
       -- so the (module) valueList is as follows
       -- Order matters, as that is the order in which we put them into the module.
-      valueList = traceShowWith prettyIndexed $! globalSymbols ++ functionSymbols ++ constantSymbols
+      --
+      -- TODO: FLAGS: if -dump-valuelist:
+      --   traceShowWith prettyIndexed $!
+      valueList = globalSymbols ++ functionSymbols ++ constantSymbols
 
       -- * T Y P E S
       -- all top level types, and all the types to construct them. (e.g. i8** -> i8, i8*, and i8**).
@@ -221,7 +224,10 @@ instance ToNBitCode (Maybe Ident, Module) where
       fullFunctionSymbols = fsymbols [] mFns
       -- The type list now additionally also contains all types that are
       -- part of the function signatures, bodies and constants.
-      typeList = traceShowWith prettyIndexed $! foldl T.ftypes topLevelTypes $ map ty fullFunctionSymbols
+      --
+      -- TODO: FLAGS: if -dump-typelist:
+      --   traceShowWith prettyIndexed $!
+      typeList = foldl T.ftypes topLevelTypes $ map ty fullFunctionSymbols
 
       -- | Turn a set of Constant Values unto BitCode Records.
       mkConstBlock :: [V.Symbol] -- ^ values that can be referenced.
