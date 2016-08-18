@@ -22,6 +22,12 @@ class Pretty a where
 instance (Pretty a) => Pretty [a] where
   pretty = hsep . punctuate comma . map pretty
 
+instance (Pretty a, Pretty b) => Pretty [(a, b)] where
+  pretty = vcat . map (\(x,y) -> pretty x <+> text "->" <+> pretty y)
+
+instance Pretty Int where
+  pretty = int
+
 -- * Base types
 instance {-# OVERLAPS #-} Pretty String where pretty = text
 instance Pretty Word64 where pretty = text . show
@@ -32,26 +38,30 @@ instance (Pretty a) => Pretty (Maybe a) where
 
 prefix :: Value -> Doc
 prefix (Global{}) = char '@'
-prefix (V.Function{}) = char '\\'
+prefix (V.Function{..}) | fIsProto  = text "decl "
+                        | otherwise = text "def "
 prefix (Alias{..}) = char '~'
 prefix (Constant{}) = text "const "
 prefix (Arg{}) = text "arg "
 prefix (Value{}) = text "val "
 prefix (TRef{}) = text "ref "
 prefix (FwdRef i) = text "fwdRef" <+> int (fromIntegral i)
+prefix (V.Label{}) = text "?"
 
 suffix :: Value -> Doc
 suffix (Global{..}) = parens (pretty gInit) <+> text "::" <+> pretty gPointerType
 suffix (V.Function{..}) = text "::" <+> pretty fType
 suffix (Alias{..}) = empty
 suffix (Constant t c) = pretty c <+> text "::" <+> pretty t
-suffix (Arg t) = text "::" <+> pretty t
+suffix (Arg t r) = int r <+> text "::" <+> pretty t
 suffix (Value t) = text "::" <+> pretty t
 suffix (TRef t r) = int r <+> text "::" <+> pretty t
 suffix (FwdRef i) = empty
+suffix (V.Label t) = text "::" <+> pretty t
 
 -- * Values
 instance Pretty Value where
+  pretty v@(V.Function{..}) | Just prefixData <- fPrefixData = prefix v <> suffix v $+$ text "Prefix:" <+> pretty prefixData
   pretty v = prefix v <> suffix v
 
 -- * Symbols
@@ -64,7 +74,7 @@ instance Pretty Ty where
   pretty Void = text "()"
   pretty T.Float = text "float"
   pretty Double = text "double"
-  pretty Label = text "lbl"
+  pretty T.Label = text "lbl"
   pretty (Opaque n) = text "opaque" <+> text n
   pretty (T.Int w) = char 'i' <> pretty w
   pretty (Ptr _ f@(T.Function{})) = parens (pretty f) <> char '*'
@@ -89,7 +99,7 @@ instance Pretty Const where
   pretty (V.CString s) = doubleQuotes $ text (escape s) <> text "\\0"
   pretty (V.InboundsGep t idxs) = parens $ text "getElemenentPointer inbounds" <+> parens (hsep . punctuate (text " !!") $ map pretty idxs) <+> text "::" <+> pretty t
   pretty (V.Struct vals) = text "struct" <+> braces (hsep (punctuate comma (map pretty vals)))
-  pretty (V.Cast op t v) = text "cast" <+> text (map toLower (show op)) <+> pretty v <+> text "to" <+> pretty t
+  pretty (V.Cast t op v) = text "cast" <+> text (map toLower (show op)) <+> pretty v <+> text "to" <+> pretty t
   pretty (V.BinOp op lhs rhs) = parens (pretty lhs) <+> text (map toLower $ show op) <+> parens (pretty rhs)
   pretty (V.Array vals) = brackets (hsep (punctuate comma (map pretty vals)))
   pretty x = error $ "Can not pretty print Const: " ++ show x
@@ -106,8 +116,8 @@ prettyIndexed = map pretty' . zip [0..]
 -- * Functions (Basic Blocks)
 instance Pretty F.Function where
   pretty (F.Function{..}) = pretty dSig
-    $$ text "Constants" $$ nest 3 (vcat (prettyIndexed dConst))
-    $+$ text "Blocks" $$ nest 3 (vcat (prettyIndexed dBody))
+    $$ text "Constants" <+> parens (int (length dConst)) $$ nest 3 (vcat (prettyIndexed dConst))
+    $+$ text "Blocks" <+> parens (int (length dBody)) $$ nest 3 (vcat (prettyIndexed dBody))
 
 instance Pretty BasicBlock where
   pretty (BasicBlock insts) = vcat (map pretty insts)
@@ -159,7 +169,7 @@ instance Pretty Module where
         text "Version"     $$ nest 12 (pretty mVersion)
     $+$ text "Triple"      $$ nest 12 (pretty mTriple)
     $+$ text "Datalayout"  $$ nest 12 (pretty mDatalayout)
-    $+$ text "Globals"     $$ nest 3 (vcat (prettyIndexed mValues))
-    $+$ text "Fn Decls"    $$ nest 3 (vcat (prettyIndexed mDecls))
-    $+$ text "Functions"   $$ nest 3 (vcat (prettyIndexed mFns))
+    $+$ text "Globals"     <+> parens (int (length mValues)) $$ nest 3 (vcat (prettyIndexed mValues))
+    $+$ text "Fn Decls"    <+> parens (int (length mDecls))  $$ nest 3 (vcat (prettyIndexed mDecls))
+    $+$ text "Functions"   <+> parens (int (length mFns))    $$ nest 3 (vcat (prettyIndexed mFns))
     )

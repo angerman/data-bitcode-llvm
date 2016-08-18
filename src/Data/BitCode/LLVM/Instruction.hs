@@ -2,8 +2,6 @@ module Data.BitCode.LLVM.Instruction where
 
 import Data.BitCode.LLVM.Types
 
-import Data.BitCode.LLVM.Classes.ToSymbols
-
 import Data.BitCode.LLVM.Type  (Ty)
 import Data.BitCode.LLVM.Value (Symbol)
 import Data.BitCode.LLVM.Cmp   (Predicate)
@@ -51,20 +49,5 @@ data Inst
   -- | Switch
   | Switch Symbol BasicBlockId [(Symbol, BasicBlockId)]
   deriving (Show, Eq)
-
-instance ToSymbols Inst where
-  symbols (Alloca _ s _)      = [s]
-  symbols (Cast _ _ s)        = [s]
-  symbols (Load _ s _)        = [s]
-  symbols (Store s s' _)      = [s,s']
-  symbols (Call _ _ _ s _ ss) = s:ss
-  symbols (Cmp2 _ s s' _)     = [s,s']
-  symbols (Gep _ _ s ss)      = s:ss
-  symbols (Ret (Just s))      = [s]
-  symbols (Ret Nothing)       = []
-  symbols (UBr _)             = []
-  symbols (Br s _ _)          = [s]
-  symbols (BinOp _ _ l r _)   = [l, r]
-  symbols (Switch s _ sbs)    = s:map fst sbs
 
 

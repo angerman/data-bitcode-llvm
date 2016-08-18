@@ -1,4 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 module Data.BitCode.LLVM where
 
 import Data.BitCode.LLVM.ParamAttr (GroupIdx, ParamAttrGroupEntry)

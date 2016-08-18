@@ -35,7 +35,7 @@ import Data.Maybe (fromMaybe)
 
 import Data.BitCode.LLVM -- essential data types
 import Data.BitCode.LLVM.Type (Ty)
-import Data.BitCode.LLVM.Value    (Value(FwdRef), Const, Symbol(..), ValueSymbolTable, ValueSymbolEntry, symbolValue, symbolName, entryName)
+import Data.BitCode.LLVM.Value    (Value(FwdRef), Const, Named(..), Symbol, ValueSymbolTable, ValueSymbolEntry, symbolValue, symbolName, entryName)
 import Data.BitCode.LLVM.Function (Function)
 import Data.BitCode.LLVM.Metadata (Metadata)
 import Data.BitCode.LLVM.ParamAttr

@@ -139,7 +139,7 @@ parseTypes = foldM_ parseType Nothing . records
           (VOID,        []                     ) -> tellType Void                                                                     >> pure name
           (FLOAT,       []                     ) -> tellType T.Float                                                                  >> pure name
           (DOUBLE,      []                     ) -> tellType Double                                                                   >> pure name
-          (LABEL,       []                     ) -> tellType Label                                                                    >> pure name
+          (LABEL,       []                     ) -> tellType T.Label                                                                  >> pure name
           (OPAQUE,      []                     )
             | (Just n) <- name                   -> tellType (Opaque n)                                                               >> pure Nothing
             | otherwise                          -> fail "Opaque needs a name!"
@@ -227,7 +227,7 @@ parseConstants = foldM_ parseConstant undefined . records
           -- TODO: support Constant Binop with 4 operands.
           (CST_CODE_CE_BINOP, [code, lhs, rhs]) -> add =<< mkConst <$> (V.BinOp (toEnum' code) <$> askValue lhs <*> askValue rhs)
           (CST_CODE_CE_BINOP, _) -> error "Invalid record: BINOP only suppored with exactly three ops!"
-          (CST_CODE_CE_CAST, [ code, tyId, valId ]) -> add =<< mkConst <$> (V.Cast (toEnum' code) <$> askType tyId <*> askValue valId)
+          (CST_CODE_CE_CAST, [ code, tyId, valId ]) -> add =<< mkConst <$> (V.Cast <$> askType tyId <*> pure (toEnum' code) <*> askValue valId)
           (CST_CODE_CE_BINOP, _) -> error "Invalid record: CAST only suppored with exactly three ops!"
           -- TODO: proper parsing.
           -- if even, assume pointee = nullptr
@@ -344,10 +344,12 @@ parseFunctionDecl :: [BC.Val] -> LLVMReader ()
 parseFunctionDecl
   [ tyId, cconv, isProto, linkage
   , paramAttrId, alignment, section, visibility, gc
-  , unnamedAddr, prologueData, storageClass, comdat
-  , prefixData, personality ]
+  , unnamedAddr, prologueDataId, storageClass, comdat
+  , prefixDataId, personality ]
   = do
   ty <- askType tyId
+  let prologueData = if prologueDataId /= 0 then Just (Unnamed (FwdRef (prologueDataId -1))) else Nothing
+      prefixData = if prefixDataId /= 0 then Just (Unnamed (FwdRef (prefixDataId -1))) else Nothing
   tellValue $ V.Function (Ptr 0 ty) (toEnum' cconv) (isProto /= 0) (toEnum' linkage)
                          paramAttrId alignment section (toEnum' visibility) gc
                          (unnamedAddr /= 0) prologueData (toEnum' storageClass)
@@ -556,7 +558,7 @@ parseFunction (f@(Named _ V.Function{..}), b) = do
   -- Not sure what we do about Uselist yet.
   let Ptr _ (T.Function _ _ paramTys) = fType
   -- put the decl header onto the valuelist.
-  mapM_ (tellValue . Arg) paramTys
+  mapM_ tellValue (zipWith Arg paramTys [0..])
   nVals' <- length <$> askValueList
   -- let's parse all constants if any.
   mapM_ parseFunctionBlock (blocks b)
