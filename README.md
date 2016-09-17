@@ -32,7 +32,7 @@ A module to produce bitcode from llvm module descriptions.
 
 ## General
 - [ ] Stop handrolling your monads. (Use transformers, and derive!)
-- [ ] Better error reporting (e.g. see preliminaries in `Data.BitCode.LLVM.Util`)
+- [x] Better error reporting (e.g. see preliminaries in `Data.BitCode.LLVM.Util`)
       Maybe using `ExceptT` to give good hints as to what faild?
 - [ ] More type verification. (E.g. let's try to make sure you 
       just can not construct invalid code)
