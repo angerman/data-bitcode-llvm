@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Data.BitCode.LLVM.Function where
 
@@ -8,6 +9,9 @@ import Data.BitCode.LLVM.Types
 
 import Data.BitCode.LLVM.Value       (Symbol)
 import Data.BitCode.LLVM.Instruction (Inst)
+import Data.Binary                   (Binary)
+
+import GHC.Generics                  (Generic)
 
 -- | Function declarations are set of so called basic blocks,
 -- which contain sets of instructions.  These blocks may have
@@ -21,7 +25,7 @@ imap f (x, y) = (x, f y)
 data NamedBlock x
   = BasicBlock x
   | NamedBlock Label x
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
 
 instance Functor NamedBlock where
   fmap f (BasicBlock x) = BasicBlock (f x)
@@ -40,8 +44,10 @@ bimap f (NamedBlock n bi) = (NamedBlock n (map f bi))
 -- | Function definitions.
 -- TODO: dSig is somewhat ugly, I'd lke enforce only function values here.
 data Function = Function { dSig :: Symbol, dConst :: [Symbol], dBody :: [BasicBlock] }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
 
 fbmap :: (BasicBlock -> BasicBlock) -> Function -> Function
 fbmap f x@(Function{..}) = x { dBody = map f dBody }
 
+instance Binary a => Binary (NamedBlock a)
+instance Binary Function

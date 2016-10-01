@@ -1,4 +1,8 @@
+{-# LANGUAGE DeriveGeneric #-}
 module Data.BitCode.LLVM.Cmp where
+
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
 
 -- | This enumeration lists the possible predicates for CmpInst subclasses.
 -- Values in the range 0-31 are reserved for FCmpInst, while values in the
@@ -37,7 +41,9 @@ data Predicate
   | ICMP_SGE  -- = 39,  ///< signed greater or equal
   | ICMP_SLT  -- = 40,  ///< signed less than
   | ICMP_SLE  --  = 41,  ///< signed less or equal
-  deriving (Eq, Enum, Show)
+  deriving (Eq, Enum, Show, Generic)
   --  FIRST_ICMP_PREDICATE = ICMP_EQ,
   --  LAST_ICMP_PREDICATE = ICMP_SLE,
   --  BAD_ICMP_PREDICATE = ICMP_SLE + 1
+
+instance Binary Predicate

@@ -1,4 +1,8 @@
+{-# LANGUAGE DeriveGeneric #-}
 module Data.BitCode.LLVM.Codes.Identification where
+
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
 
 -- | Identification block contains a string that describes the producer details,
 -- and an epoch that defines the auto-upgrade capability.
@@ -9,7 +13,9 @@ data IdentificationCodes
   | STRING -- 1
   -- | EPOCH: @[epoch#]@ -- see @Epoch@
   | EPOCH -- 2
-  deriving (Show, Enum)
+  deriving (Show, Enum, Generic)
+
+instance Binary IdentificationCodes
 
 -- | The epoch that defines the auto-upgrade compatibility for the bitcode.
 --
@@ -20,5 +26,6 @@ data IdentificationCodes
 data Epoch
   -- | The current bitcode epoch
   = Current -- 0
-  deriving (Show, Enum)
+  deriving (Show, Enum, Generic)
 
+instance Binary Epoch

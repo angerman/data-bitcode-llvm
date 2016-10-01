@@ -1,4 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DeriveGeneric   #-}
+
 module Data.BitCode.LLVM.Value where
 
 import Data.Word                         (Word16, Word32, Word64)
@@ -13,6 +15,9 @@ import Data.BitCode.LLVM.Opcodes.Binary  (BinOp)
 
 import Data.BitCode.LLVM.Classes.HasType
 
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
+
 -- | Just a reference.
 type Ref = Int
 
@@ -23,7 +28,8 @@ data FpValue
   | FpDoubleExt    !(Word64, Word64)  -- ^ X86 Double Extended (80)
   | FpQuad         !(Word64, Word64)  -- ^ IEEEquad
   | FpDoubleDouble !(Word64, Word64)  -- ^ PPCDoubleDouble
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic)
+
 -- | Const `types`. These are usually wrapped in a Constant.
 -- which carries their type.
 data Const
@@ -52,7 +58,7 @@ data Const
   | BlockAddress !Word64 !Word64 !Word64 -- ^ [fnty, fnval, bb#]
   | Data ![Word64] -- ^ [n x elements]
   -- | InlineAsm -- TODO
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic)
 
 -- | Values the ValueList may contain.
 data Value
@@ -117,7 +123,7 @@ data Value
   -- will be replaced with their repsective global or function. Others will be
   -- replaced by external references.
   | Label Ty
-  deriving (Show, Ord)
+  deriving (Show, Ord, Generic)
 
 instance Eq Value where
   Global ty cst as i l pa s v tl ua ei sc c == Global ty' cst' as' i' l' pa' s' v' tl' ua' ei' sc' c'
@@ -180,7 +186,7 @@ instance HasType Value where
 data Named a
   = Named !String a
   | Unnamed a
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic)
 
 instance Functor Named where
   fmap f (Named n x) = Named n (f x)
@@ -206,3 +212,8 @@ data ValueSymbolEntry
 entryName :: ValueSymbolEntry -> String
 entryName (Entry s) = s
 entryName (FnEntry _ s) = s
+
+instance Binary FpValue
+instance Binary Const
+instance Binary Value
+instance Binary a => Binary (Named a)

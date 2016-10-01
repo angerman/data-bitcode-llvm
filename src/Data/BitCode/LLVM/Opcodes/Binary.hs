@@ -1,4 +1,8 @@
+{-# LANGUAGE DeriveGeneric #-}
 module Data.BitCode.LLVM.Opcodes.Binary where
+
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
 
 -- | BinaryOpcodes - These are values used in the bitcode files to encode which
 -- binop a CST_CODE_CE_BINOP or a XXX refers to.  The values of these enums
@@ -20,4 +24,6 @@ data BinOp
   | AND -- 10
   | OR -- 11
   | XOR -- 12
-  deriving (Show, Enum, Eq, Ord)
+  deriving (Show, Enum, Eq, Ord, Generic)
+
+instance Binary BinOp

@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE DeriveGeneric #-}
 module Data.BitCode.LLVM where
 
 import Data.BitCode.LLVM.ParamAttr (GroupIdx, ParamAttrGroupEntry)
@@ -17,6 +18,9 @@ import Data.BitCode.LLVM.Classes.ToSymbols
 import Data.BitCode.LLVM.Classes.HasType
 
 import Data.Word (Word64)
+
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
 
 --- LLVM Bit Codes -------------------------------------------------------------
 -- see LLVMBitCodes.h (e.g. http://llvm.org/docs/doxygen/html/LLVMBitCodes_8h_source.html)
@@ -39,7 +43,7 @@ import Data.Word (Word64)
 data Ident = Ident
              String -- ^ The name of the producer.
              Epoch  -- ^ The llvm bitcode epoch (version). Currently only 1 (Current) is supported.
-  deriving Show
+  deriving (Show, Generic)
 
 -- | The representation of the actual module.
 data Module = Module
@@ -52,13 +56,16 @@ data Module = Module
   , mDecls :: [Symbol]         -- ^ Function declarations for functions outside of the module.
   , mFns :: [Function]         -- ^ Function definitions for function contained within the module.
   }
-  deriving (Show,Eq)
+  deriving (Show, Eq, Generic)
 
 instance ToSymbols Module where
   symbols (Module{..}) = mValues ++ mDecls ++ concatMap symbols mFns
 
 instance HasType Symbol where
   ty = ty . symbolValue
+
+instance Binary Ident
+instance Binary Module
 
 -- TODO: when actually constructing a module, we might
 -- want a different data structure, which implicitly

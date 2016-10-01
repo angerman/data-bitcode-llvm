@@ -1,4 +1,8 @@
+{-# LANGUAGE DeriveGeneric #-}
 module Data.BitCode.LLVM.Linkage where
+
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
 
 -- see @include/llvm/IR/GlobalValue.h@
 data Linkage
@@ -24,4 +28,6 @@ data Linkage
   | ExternalWeak -- 9
   -- | Tentative definitions.
   | Common -- 10
-  deriving (Enum, Eq, Ord, Show)
+  deriving (Enum, Eq, Ord, Show, Generic)
+
+instance Binary Linkage

@@ -1,6 +1,11 @@
+{-# LANGUAGE DeriveGeneric #-}
+
 module Data.BitCode.LLVM.Type where
 
-import Data.Word (Word64)
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
+
+import Data.Word                         (Word64)
 
 -- * Types
 data Ty
@@ -20,7 +25,9 @@ data Ty
   | StructNamed { teName :: String, teNamedIsPacked :: Bool, teNamedEltTy :: [Ty] }
   | Function { teVarArg :: Bool, teRetTy :: Ty, teParamTy :: [Ty] }
   | Token
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
+
+instance Binary Ty
 
 orderIdx :: Ty -> Int
 orderIdx (NumEntry{}) = 0

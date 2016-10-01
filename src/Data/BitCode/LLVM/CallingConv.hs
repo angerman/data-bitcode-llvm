@@ -1,4 +1,8 @@
+{-# LANGUAGE DeriveGeneric #-}
 module Data.BitCode.LLVM.CallingConv where
+
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
 
 -- TODO: Add doc, see @include/llvm/IR/CallingConv.h@
 data CallingConv
@@ -15,4 +19,6 @@ data CallingConv
   | Swift        -- 16
   | CxxFastTls   -- 17
   -- NOTE: There are more (64...)
-  deriving (Eq, Enum, Ord, Show)
+  deriving (Eq, Enum, Ord, Show, Generic)
+
+instance Binary CallingConv

@@ -1,4 +1,9 @@
+{-# LANGUAGE DeriveGeneric #-}
+
 module Data.BitCode.LLVM.ThreadLocalMode where
+
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
 
 -- see @include/llvm/IR/GlobalValue.h@
 data ThreadLocalMode
@@ -7,4 +12,6 @@ data ThreadLocalMode
   | LocalDynamicTLSModel
   | InitialExecTLSModel
   | LocalExecTLSModel
-  deriving (Eq, Enum, Ord, Show)
+  deriving (Eq, Enum, Ord, Show, Generic)
+
+instance Binary ThreadLocalMode

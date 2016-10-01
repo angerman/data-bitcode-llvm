@@ -1,17 +1,25 @@
+{-# LANGUAGE DeriveGeneric #-}
 module Data.BitCode.LLVM.Flags where
+
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
 
 -- | OverflowingBinaryOperatorOptionalFlags - Flags for serializing
 -- OverflowingBinaryOperator's SubclassOptionalData contents.
 data OverflowingBinaryOperatorOptional
   = NO_UNSIGNED_WRAP -- 0
   | NO_SIGNED_WRAP -- 1
-  deriving (Show, Enum, Eq)
+  deriving (Show, Enum, Eq, Generic)
+
+instance Binary OverflowingBinaryOperatorOptional
 
 -- | PossiblyExactOperatorOptionalFlags - Flags for serializing
 -- PossiblyExactOperator's SubclassOptionalData contents.
 data PossiblyExactOperatorOptional
   = EXACT -- 0
-  deriving (Show, Enum, Eq)
+  deriving (Show, Enum, Eq, Generic)
+
+instance Binary PossiblyExactOperatorOptional
 
 -- | Markers and flags for call instruction.
 data CallMarkers
@@ -25,12 +33,16 @@ data CallMarkers
   | CALL_NOTAIL -- 16
   -- | Call has optional fast-math-flags.
   | CALL_FMF -- 17
-  deriving (Enum, Show, Eq)
+  deriving (Enum, Show, Eq, Generic)
+
+instance Binary CallMarkers
 
 data Flag = Overflow OverflowingBinaryOperatorOptional
           | Exact PossiblyExactOperatorOptional
           | Call CallMarkers
-          deriving (Show, Eq)
+          deriving (Show, Eq, Generic)
+
+instance Binary Flag
 
 flagValue :: Flag -> Int
 flagValue (Overflow x) = fromEnum x

@@ -1,4 +1,8 @@
+{-# LANGUAGE DeriveGeneric #-}
 module Data.BitCode.LLVM.Opcodes.Cast where
+
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
 
 -- | CastOpcodes - These are values used in the bitcode files to encode which
 -- cast a CST_CODE_CE_CAST or a XXX refers to.  The values of these enums
@@ -18,4 +22,6 @@ data CastOp
   | INTTOPTR -- 10
   | BITCAST -- 11
   | ADDRSPACECAST -- 12
-  deriving (Show, Enum, Eq, Ord)
+  deriving (Show, Enum, Eq, Ord, Generic)
+
+instance Binary CastOp

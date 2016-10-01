@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 module Data.BitCode.LLVM.Instruction where
 
 import Data.BitCode.LLVM.Types
@@ -11,7 +12,12 @@ import Data.BitCode.LLVM.Opcodes.Cast (CastOp)
 import Data.BitCode.LLVM.CallingConv     (CallingConv)
 import Data.BitCode.LLVM.Flags (Flag)
 
-data TailCallKind = None | Tail | MustTail | NoTail deriving (Eq, Show)
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
+
+data TailCallKind = None | Tail | MustTail | NoTail deriving (Eq, Show, Generic)
+
+instance Binary TailCallKind
 
 data Inst
   -- | Ty and Value type should match up. If Ty is Metadata, then the Value is takes from the Metadata List
@@ -48,6 +54,6 @@ data Inst
   | Br Symbol BasicBlockId BasicBlockId
   -- | Switch
   | Switch Symbol BasicBlockId [(Symbol, BasicBlockId)]
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
 
-
+instance Binary Inst
