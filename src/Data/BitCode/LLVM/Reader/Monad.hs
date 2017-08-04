@@ -1,7 +1,7 @@
 module Data.BitCode.LLVM.Reader.Monad
   ( LLVMReader
   , Result
-  , evalLLVMReader
+  , evalLLVMReader, traceEvalLLVMReader
   , tellType,  askType
   , tellValue, askValue
   , ask, askTypeList, askValueList, tellValueList
@@ -14,18 +14,21 @@ module Data.BitCode.LLVM.Reader.Monad
   , askParamattrGroup, tellParamattrGroup
   , tellIdent, askIdent
 
-  , tellVersion, tellTriple, tellDataLayout
+  , tellVersion, askVersion
+  , tellTriple, tellDataLayout
 
   , purgeValueList
 
   , nth
+
+  , trace, traceShow
   )
   where
 
 import Control.Exception (assert)
 import Debug.Trace (traceStack)
 
-import Control.Monad (MonadPlus(..))
+import Control.Monad (MonadPlus(..), when)
 import Control.Applicative (Alternative(..))
 import Data.Maybe (fromMaybe)
 
@@ -40,6 +43,7 @@ import Data.BitCode.LLVM.Function (Function)
 import Data.BitCode.LLVM.Metadata (Metadata)
 import Data.BitCode.LLVM.ParamAttr
 
+import qualified Debug.Trace as DBG
 
 type Result a = Either String a
 
@@ -62,10 +66,12 @@ data Ctx = Ctx
   , metadataKinds :: [(Int, String)]
   , symbols :: [Symbol]
   , valueSymbolTable :: ValueSymbolTable
+  -- * Debugging
+  , _trace :: Bool
   } deriving Show
 
 mkCtx :: Ctx
-mkCtx = Ctx (error "Ident") (error "Version") (error "Triple") (error "Datalayout") mempty mempty mempty mempty mempty mempty mempty mempty
+mkCtx = Ctx (error "Ident") (error "Version") (error "Triple") (error "Datalayout") mempty mempty mempty mempty mempty mempty mempty mempty False
 
 -- | A strict pair.
 data PairS a = PairS { result :: !(Result a)
@@ -76,6 +82,9 @@ newtype LLVMReader a = LLVM { runLLVMReader :: Ctx -> PairS a }
 
 evalLLVMReader :: LLVMReader a -> Result a
 evalLLVMReader = result . flip runLLVMReader mkCtx
+
+traceEvalLLVMReader :: LLVMReader a -> Result a
+traceEvalLLVMReader = result . flip runLLVMReader mkCtx { _trace = True }
 
 -- * Functor
 instance Functor LLVMReader where
@@ -114,6 +123,14 @@ instance Alternative LLVMReader where
   m <|> n = LLVM $ \c -> case runLLVMReader m c of
                            PairS (Left _) _ -> runLLVMReader n c
                            res              -> res
+whenM :: (Monad m) => m Bool -> m () -> m ()
+whenM cond f = cond >>= flip when f
+
+trace :: String -> LLVMReader ()
+trace = whenM (_trace <$> ask) . DBG.traceM
+
+traceShow :: (Show a) => a -> LLVMReader b -> LLVMReader b
+traceShow x a = trace (show x) >> a
 
 ask :: LLVMReader Ctx
 ask = LLVM $ \c -> PairS (pure c) c
@@ -215,6 +232,9 @@ askIdent = identification <$> ask
 
 tellVersion :: (Integral a) => a -> LLVMReader ()
 tellVersion v = modify $ \c -> c { version = fromIntegral v }
+
+askVersion :: LLVMReader Int
+askVersion = version <$> ask
 
 tellTriple :: String -> LLVMReader ()
 tellTriple s = modify $ \c -> c { triple = s }
