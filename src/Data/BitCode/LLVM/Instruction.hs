@@ -6,11 +6,15 @@ import Data.BitCode.LLVM.Types
 import Data.BitCode.LLVM.Type  (Ty)
 import Data.BitCode.LLVM.Value (Symbol)
 import Data.BitCode.LLVM.Cmp   (Predicate)
+import Data.BitCode.LLVM.RMWOperations (RMWOperations)
 
 import Data.BitCode.LLVM.Opcodes.Binary (BinOp)
 import Data.BitCode.LLVM.Opcodes.Cast (CastOp)
 import Data.BitCode.LLVM.CallingConv     (CallingConv)
 import Data.BitCode.LLVM.Flags (Flag)
+
+import Data.BitCode.LLVM.Codes.AtomicOrdering (AtomicOrdering)
+import Data.BitCode.LLVM.Codes.SynchronizationScope (AtomicSynchScope)
 
 import GHC.Generics                      (Generic)
 import Data.Binary                       (Binary)
@@ -54,6 +58,8 @@ data Inst
   | Br Symbol BasicBlockId BasicBlockId
   -- | Switch
   | Switch Symbol BasicBlockId [(Symbol, BasicBlockId)]
+  -- | Atomic ops
+  | CmpXchg     Symbol Symbol Symbol AtomicOrdering AtomicSynchScope {- failure ord -} AtomicOrdering
   deriving (Show, Eq, Generic)
 
 instance Binary Inst

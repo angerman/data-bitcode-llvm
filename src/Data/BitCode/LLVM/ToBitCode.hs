@@ -13,6 +13,7 @@ import qualified Data.BitCode.LLVM.Instruction as I (Inst(..), TailCallKind(..))
 import Data.BitCode.LLVM.Flags
 
 import Data.BitCode.LLVM.IDs.Blocks
+import Data.BitCode.LLVM.RMWOperations 
 import qualified Data.BitCode.LLVM.Codes.Identification as IC
 import qualified Data.BitCode.LLVM.Codes.Module         as MC
 import qualified Data.BitCode.LLVM.Codes.Type           as TC
@@ -480,6 +481,16 @@ instance ToNBitCode (Maybe Ident, Module) where
                                                                    , bbId'
                                                                    , lookupRelativeSymbolIndex' n val
                                                                    ]
+              mkInstRec n (I.CmpXchg ptr cmp new {- _vol -} order scope failOrder {- _weak -})
+                                             = mkRec FC.INST_CMPXCHG [ lookupRelativeSymbolIndex' n ptr
+                                                                     , lookupRelativeSymbolIndex' n cmp
+                                                                     , lookupRelativeSymbolIndex' n new
+                                                                     , (0 :: Int)
+                                                                     , fromEnum' order
+                                                                     , fromEnum' scope
+                                                                     , fromEnum' failOrder
+                                                                     , (0 :: Int)
+                                                                     ]
               mkInstRec n i = error $ "Instruction " ++ (show i) ++ " not yet supported."
               -- Fold helper to keep track of the instruction count.
               mkInstRecFold :: (Int, [NBitCode]) -> I.Inst -> (Int, [NBitCode])

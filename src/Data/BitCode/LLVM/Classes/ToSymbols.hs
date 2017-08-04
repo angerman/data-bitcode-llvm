@@ -98,3 +98,4 @@ instance ToSymbols Inst where
   fsymbols s_ (I.Br s _ _)          = fsymbols s_ s
   fsymbols s_ (I.BinOp _ _ l r _)   = foldl fsymbols s_ [l, r]
   fsymbols s_ (I.Switch s _ sbs)    = foldl fsymbols s_ (s:map fst sbs)
+  fsymbols s_ (I.CmpXchg p c n _ _ _) = foldl fsymbols s_ [p, c, n]

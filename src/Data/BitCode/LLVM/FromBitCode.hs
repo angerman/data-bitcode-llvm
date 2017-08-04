@@ -22,6 +22,8 @@ import Data.BitCode.LLVM.Codes.AttributeKind
 import Data.BitCode.LLVM.Codes.Attribute
 import Data.BitCode.LLVM.Codes.ValueSymtab
 import Data.BitCode.LLVM.Codes.Constants
+import Data.BitCode.LLVM.Codes.AtomicOrdering
+import Data.BitCode.LLVM.Codes.SynchronizationScope
 import Data.BitCode.LLVM.Codes.Metadata as MD
 import Data.BitCode.LLVM.Codes.Function as FC
 
@@ -800,7 +802,20 @@ parseInst rs = \case
   -- 45
   -- (INST_STOREATOMIC, [ ptr, val, align, vol ])
   -- 46
-  -- (INST_CMPXCHG, [ ptrty, ptr, valty, cmp, new, align, vol, ordering, synchscope])
+  (INST_CMPXCHG, [ ptr, cmp, new, vol, ordering, synchscope, failureOrdering, weak ]) -> do
+    ref <- getRelativeVal rs ptr
+    cmp <- getRelativeVal rs cmp
+    new <- getRelativeVal rs new 
+    unless (ty cmp == ty new) $ pure $ error "Invalid record: CMP2 lhs and rhs types do not agree."
+
+    return . Just $ CmpXchg ref cmp new (decodeOrdering ordering)
+                                        (decodeSynchScope synchscope)
+                                        (decodeOrdering failureOrdering)
+    where
+      decodeOrdering :: BC.Val -> AtomicOrdering
+      decodeOrdering = toEnum'
+      decodeSynchScope :: BC.Val -> AtomicSynchScope
+      decodeSynchScope = toEnum'
   -- 47
   -- (INST_LANDINGPAD, [ ty, val, num, id0, val0, ...])
   -- 48
