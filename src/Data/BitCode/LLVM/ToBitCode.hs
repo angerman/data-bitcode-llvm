@@ -86,8 +86,6 @@ instance {-# OVERLAPPING #-} ToNBitCode [T.Ty] where
           mkTypeRec T.Token                  = [ mkEmptyRec TC.TOKEN ]
 
 
-
-
 lookupIndexGeneric :: (Pretty a, Eq a, Show a, Integral b) => [a] -> a -> b
 lookupIndexGeneric xs x = case elemIndex x xs of
   Just i -> fromIntegral i

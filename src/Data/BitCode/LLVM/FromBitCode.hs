@@ -47,7 +47,6 @@ import qualified Data.BitCode.LLVM.Flags as Flags
 import Data.BitCode.LLVM.Opcodes.Binary as BinOp
 import qualified Data.BitCode.LLVM.Opcodes.Cast as CastOp
 
-import Debug.Trace
 
 -- Conceptuall we take bitcode and interpret it as LLVM IR.
 -- This should result in a single module.
@@ -340,12 +339,18 @@ parseGlobalVar vals
 -- TODO: if less than eight values -> Invalid record.
 --       if type can not be reconstructed, invalid record.
 --       if ty can not be cast to function type. -> invalid value
+
 parseFunctionDecl :: [BC.Val] -> LLVMReader ()
-parseFunctionDecl
-  [ tyId, cconv, isProto, linkage
-  , paramAttrId, alignment, section, visibility, gc
-  , unnamedAddr, prologueDataId, storageClass, comdat
-  , prefixDataId, personality ]
+parseFunctionDecl vals = askVersion >>= \case
+  1 -> parseFunctionDecl' vals
+  2 -> parseFunctionDecl' (drop 2 vals)
+
+parseFunctionDecl' :: [BC.Val] -> LLVMReader ()
+parseFunctionDecl'
+  [ tyId, cconv, isProto, linkage                       -- 4
+  , paramAttrId, alignment, section, visibility, gc     -- 9
+  , unnamedAddr, prologueDataId, storageClass, comdat   -- 13
+  , prefixDataId, personality ]                         -- 15
   = do
   ty <- askType tyId
   let prologueData = if prologueDataId /= 0 then Just (Unnamed (FwdRef (prologueDataId -1))) else Nothing
@@ -355,6 +360,7 @@ parseFunctionDecl
                          (unnamedAddr /= 0) prologueData (toEnum' storageClass)
                          comdat prefixData personality
 
+parseFunctionDecl' vs = fail $ "Failed to parse functiond decl from " ++ show (length vs) ++ " values " ++ show vs
 
 upgradeDLLImportExportLinkage :: Linkage.Linkage -> DLLStorageClass.DLLStorageClass
 upgradeDLLImportExportLinkage = \case
@@ -432,12 +438,13 @@ parseModule bs = do
       layout  = parseDataLayout       <$> lookupRecord DATALAYOUT bs
       vst     = parseSymbolValueTable <$> lookupBlock VALUE_SYMTAB bs
 
-  traceM "Parsing Blocks"
+  tellVersion version
+  trace "Parsing Blocks"
   flip mapM_  bs $ \case
     (NBlock c bs') -> parseModuleBlock (toEnum c, bs')
     (NRec   c vs)  -> parseModuleRecord (toEnum c, vs)
 
-  traceM "Parsing VST"
+  trace "Parsing VST"
   -- update values with symbols
   case vst of
     Just vst -> tellValueSymbolTable vst
@@ -449,7 +456,7 @@ parseModule bs = do
   -- obtain a snapshot of all current values
   values <- askValueList
 
-  traceM "Parsing Decls"
+  trace "Parsing Decls"
 
   let functionDefs = [f | f@(Named _ (V.Function {..})) <- values, not fIsProto] ++
                      [f | f@(Unnamed (V.Function {..})) <- values, not fIsProto]
@@ -457,7 +464,7 @@ parseModule bs = do
                      [f | f@(Unnamed (V.Function {..})) <- values, fIsProto ]
   (unless (length functionDefs == length functionBlocks)) $ fail $ "#functionDecls (" ++ show (length functionDefs) ++ ") does not match #functionBodies (" ++ show (length functionBlocks) ++ ")"
 
-  traceM "Parsing Functions"
+  trace "Parsing Functions"
 
   fns <- mapM parseFunction (zip functionDefs functionBlocks)
 
@@ -485,7 +492,7 @@ parseSymbolValueTable = foldl (\l x -> parseSymbolValue x:l) [] . filter f . rec
 
 -- block ids
 parseModuleBlock :: (ModuleBlockID, [NBitCode]) -> LLVMReader ()
-parseModuleBlock (id,bs) = traceM ("parseModuleBlock " ++ show id) >> case (id,bs) of
+parseModuleBlock (id,bs) = trace ("parseModuleBlock " ++ show id) >> case (id,bs) of
   ({-  9 -}PARAMATTR, bs) -> parseAttr bs
   ({- 10 -}PARAMATTR_GROUP, bs) -> parseAttrGroup bs
   ({- 11 -}CONSTANTS, bs) -> parseConstants bs
@@ -500,15 +507,19 @@ parseModuleBlock (id,bs) = traceM ("parseModuleBlock " ++ show id) >> case (id,b
   ({- 20 -}FUNCTION_SUMMARY, bs) -> return () -- TODO
   ({- 21 -}OPERAND_BUNDLE_TAGS, bs) -> return () -- TODO
   ({- 22 -}B.METADATA_KIND, bs) -> parseMetadataKinds bs
-  c -> fail $ "Encounterd unhandled block: " ++ show c
+  ({- 23 -}STRTAB, bs) -> return () -- TODO
+  ({- 24 -}FULL_LTO_GLOBAL_SUMMARY, bs) -> return () -- TODO
+  ({- 25 -}SYMTAB, bs) -> return () -- TODO
+  ({- 26 -}SYNC_SCOPE_NAMES, bs) -> return () -- TODO
+  c -> fail $ "Encountered unhandled block: " ++ show c
 
 parseModuleRecord :: (ModuleCode, [BC.Val]) -> LLVMReader ()
-parseModuleRecord (id,bs) = traceM ("parseModuleRecord " ++ show id) >> case (id,bs) of
+parseModuleRecord (id,bs) = trace ("parseModuleRecord " ++ show id) >> case (id,bs) of
   ({-  1 -}VERSION, _) -> pure () -- ignore, it's being picked apart somewhere else.
   ({-  2 -}TRIPLE, _) -> pure () -- ignore
   ({-  3 -}DATALAYOUT, _) -> pure () -- ignore
   -- ({-  4 -}ASM, asm) -> -- unhandled
-  ({-  5 -}SECTIONNAME, name) -> traceM $ "!! ignoring section name " ++ (map toEnum' name)
+  ({-  5 -}SECTIONNAME, name) -> trace $ "!! ignoring section name " ++ (map toEnum' name)
   -- ({-  6 -}DEPLIB, name) -- unhanlded, will be removed in 4.0 anyway.
   ({-  7 -}GLOBALVAR, vs) -> parseGlobalVar vs
   ({-  8 -}M.FUNCTION, vs) -> parseFunctionDecl vs
@@ -517,10 +528,13 @@ parseModuleRecord (id,bs) = traceM ("parseModuleRecord " ++ show id) >> case (id
   -- ({- 11 -}GCNAME, name) -- unhandled
   -- ({- 12 -}COMDAT, [ sectionKind, name ]) -- unhandled
   -- as we do not jump to the VST, we can safely ignore it here.
-  ({- 13 -}VSTOFFSET, [ offset ]) -> traceM $ "!! ignoring VSTOffset " ++ show offset
+  ({- 13 -}VSTOFFSET, [ offset ]) -> trace $ "!! ignoring VSTOffset " ++ show offset
   ({- 14 -}ALIAS, vs) -> parseAlias True vs
 --  ({- 15 -}METADATA_VALUES, numvals)
   -- ignore others; e.g. we only need to parse the ones above in sequence to populate the valuetable properly.
+  ({- 16 -}SOURCE_FILENAME, name) -> trace $ "!! ignoring source filename " ++ (map toEnum' name)
+  ({- 17 -}HASH, vs) -> trace $ "!! ignoring hash " ++ show vs
+  -- ({- 18 -}IFUNC, [ valty, addrspace, resolverval, link, visibility ])
   (id,ops) -> fail $ "Encountered unhandled record: " ++ show id ++ " with ops: " ++ show ops
 
 
@@ -587,8 +601,8 @@ parseFunctionBlock :: (ModuleBlockID, [NBitCode]) -> LLVMReader ()
 parseFunctionBlock = \case
   (CONSTANTS, b) -> parseConstants b
   (B.METADATA, b) -> parseMetadata b
-  (B.METADATA_ATTACHMENT_ID, b) -> traceM ("Ignoring Metadata attachment: " ++ show b)
-  (B.USELIST, b) -> traceM ("Cannot parse uselist yet (" ++ show b ++ ")") >> return ()
+  (B.METADATA_ATTACHMENT_ID, b) -> trace ("Ignoring Metadata attachment: " ++ show b)
+  (B.USELIST, b) -> trace ("Cannot parse uselist yet (" ++ show b ++ ")") >> return ()
   _ -> pure ()
 
 getRelativeVal :: (Integral a) => [Symbol] -> a -> LLVMReader Symbol
@@ -804,5 +818,5 @@ parseInst rs = \case
   -- 53, 54 - Unused
   -- (OPERAND_BUNDLE, vals)
   -- ignore all other instructions for now.
-  r -> fail $ show r
+  r -> fail $ "Encountered unhandled instruction " ++ show r
 
