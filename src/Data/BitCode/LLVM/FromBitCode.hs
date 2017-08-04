@@ -775,17 +775,36 @@ parseInst rs = \case
   -- 35
   -- (DEBUG_LOC)
   -- 36
-  -- (INST_FENCE, [ordering, synchscope])
+  (INST_FENCE, [ordering, synchscope]) -> do
+    return . Just $ Fence (decodeOrdering ordering) (decodeSynchScope synchscope)
+    where
+      decodeOrdering :: BC.Val -> AtomicOrdering
+      decodeOrdering = toEnum'
+      decodeSynchScope :: BC.Val -> AtomicSynchScope
+      decodeSynchScope = toEnum'
+
   -- 37
   -- (INST_CMPXCHG_OLD, [ptrty, ptr, cmp, new, align, vol, ordering, synchscope])
   -- 38
-  -- (INST_ATOMICRMW, [ptrty, ptr, val, operation, align, vol,ordering, synchscope])
+  (INST_ATOMICRMW, [ ptr, val, op, vol, ordering, synchscope]) -> do
+    ref <- getRelativeVal rs ptr
+    val <- getRelativeVal rs val
+    return . Just $ AtomicRMW ref val (toEnum' op) (decodeOrdering ordering) (decodeSynchScope synchscope)
+    where
+      decodeOrdering :: BC.Val -> AtomicOrdering
+      decodeOrdering = toEnum'
+      decodeSynchScope :: BC.Val -> AtomicSynchScope
+      decodeSynchScope = toEnum'
+   
   -- 39
   -- (INST_RESUME, [opval])
   -- 40
   -- (INST_LANDINGPAD_OLD, [ty, val, val, num, id0, val0, ...])
   -- 41
-  -- (INST_LOADATOMIC, [opty, op, align, vol, ordering, synchscope])
+  (INST_LOADATOMIC, [ ptr, opty, align, vol, ordering, synchscope]) -> do
+    oTy <- askType opty
+    ref <- getRelativeVal rs ptr
+    return . Just $ AtomicLoad oTy ref (2^(align-1)) (toEnum' ordering) (toEnum' synchscope)
   -- 42
   -- (INST_STOREATOMIC_OLD, [ptrty, ptr, val, align, vol, odering, synchscope])
   -- 43
@@ -800,7 +819,10 @@ parseInst rs = \case
     val <- getRelativeVal rs val
     return . Just $ Store ref val (2^(align-1))
   -- 45
-  -- (INST_STOREATOMIC, [ ptr, val, align, vol ])
+  (INST_STOREATOMIC, [ ptr, val, align, vol, ordering, synchscope ]) -> do
+    ref <- getRelativeVal rs ptr
+    val <- getRelativeVal rs val
+    return . Just $ AtomicStore ref val (2^(align-1)) (toEnum' ordering) (toEnum' synchscope)
   -- 46
   (INST_CMPXCHG, [ ptr, cmp, new, vol, ordering, synchscope, failureOrdering, weak ]) -> do
     ref <- getRelativeVal rs ptr

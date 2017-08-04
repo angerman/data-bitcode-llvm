@@ -59,7 +59,11 @@ data Inst
   -- | Switch
   | Switch Symbol BasicBlockId [(Symbol, BasicBlockId)]
   -- | Atomic ops
-  | CmpXchg     Symbol Symbol Symbol AtomicOrdering AtomicSynchScope {- failure ord -} AtomicOrdering
+  | Fence AtomicOrdering AtomicSynchScope
+  | CmpXchg     Symbol Symbol Symbol AtomicOrdering AtomicSynchScope {- failure ord: -} AtomicOrdering
+  | AtomicRMW   Symbol Symbol RMWOperations {- volatility -} AtomicOrdering AtomicSynchScope
+  | AtomicStore Symbol Symbol Align {- volatility -} AtomicOrdering AtomicSynchScope
+  | AtomicLoad  Ty Symbol Align {- volatility -} AtomicOrdering AtomicSynchScope
   deriving (Show, Eq, Generic)
 
 instance Binary Inst

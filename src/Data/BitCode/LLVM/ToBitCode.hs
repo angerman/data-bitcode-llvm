@@ -481,6 +481,10 @@ instance ToNBitCode (Maybe Ident, Module) where
                                                                    , bbId'
                                                                    , lookupRelativeSymbolIndex' n val
                                                                    ]
+              mkInstRec n (I.Fence order scope)
+                                             = mkRec FC.INST_FENCE [ fromEnum' order :: Int
+                                                                   , fromEnum' scope
+                                                                   ]
               mkInstRec n (I.CmpXchg ptr cmp new {- _vol -} order scope failOrder {- _weak -})
                                              = mkRec FC.INST_CMPXCHG [ lookupRelativeSymbolIndex' n ptr
                                                                      , lookupRelativeSymbolIndex' n cmp
@@ -491,6 +495,30 @@ instance ToNBitCode (Maybe Ident, Module) where
                                                                      , fromEnum' failOrder
                                                                      , (0 :: Int)
                                                                      ]
+              mkInstRec n (I.AtomicRMW ptr cmp op {- _vol -} order scope)
+                                             = mkRec FC.INST_ATOMICRMW [ lookupRelativeSymbolIndex' n ptr
+                                                                       , lookupRelativeSymbolIndex' n cmp
+                                                                       , fromEnum' op
+                                                                       , (0 :: Int)
+                                                                       , fromEnum' order
+                                                                       , fromEnum' scope
+                                                                       ]
+              mkInstRec n (I.AtomicStore ptr val align {- _vol -} order scope)
+                                             = mkRec FC.INST_STOREATOMIC [ lookupRelativeSymbolIndex' n ptr
+                                                                         , lookupRelativeSymbolIndex' n val
+                                                                         , bitWidth align
+                                                                         , (0 :: Int)
+                                                                         , fromEnum' order
+                                                                         , fromEnum' scope
+                                                                         ]
+              mkInstRec n (I.AtomicLoad _ ptr align {- _vol -} order scope)
+                                             = mkRec FC.INST_LOADATOMIC [ lookupRelativeSymbolIndex' n ptr
+                                                                        , lookupTypeIndex typeList . lower . ty $ ptr
+                                                                        , bitWidth align
+                                                                        , (0 :: Int)
+                                                                        , fromEnum' order
+                                                                        , fromEnum' scope
+                                                                        ]
               mkInstRec n i = error $ "Instruction " ++ (show i) ++ " not yet supported."
               -- Fold helper to keep track of the instruction count.
               mkInstRecFold :: (Int, [NBitCode]) -> I.Inst -> (Int, [NBitCode])

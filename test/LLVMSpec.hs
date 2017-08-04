@@ -124,8 +124,17 @@ spec_llvm = do
       ret `shouldSatisfy` isModule
       let Right (_mbIdent, mod) = ret
       moduleInstructions mod `shouldSatisfy` (any isFence)
+
+    it "should be able to roundtrip FENCE" $ do
+      bcfile <- compile "test/fromBitcode/fence.ll"
+      ret <- readBitcode bcfile
+      ret `shouldSatisfy` isModule
+      let Right mod = ret
+      writeFile' bcfile . map denormalize $ toBitCode mod
+      ret <- readBitcode bcfile
+      ret `shouldSatisfy` isModule
+      decompile bcfile `shouldReturn` "test/fromBitcode/fence.dis"
       
---    xit "should be able to roundtrip FENCE"
     it "should be able to read ATOMIC RMW" $ do
       bcfile <- compile "test/fromBitcode/atomicrmw.ll"
       ret <- readBitcode bcfile
@@ -133,7 +142,16 @@ spec_llvm = do
       let Right (_mbIdent, mod) = ret
       moduleInstructions mod `shouldSatisfy` (any isAtomicRMW)
       
---    xit "should be able to roundtrip ATOMIC RMW"
+    it "should be able to roundtrip ATOMIC RMW" $ do
+      bcfile <- compile "test/fromBitcode/atomicrmw.ll"
+      ret <- readBitcode bcfile
+      ret `shouldSatisfy` isModule
+      let Right mod = ret
+      writeFile' bcfile . map denormalize $ toBitCode mod
+      ret <- readBitcode bcfile
+      ret `shouldSatisfy` isModule
+      decompile bcfile `shouldReturn` "test/fromBitcode/atomicrmw.dis"
+    
     it "should be able to read LOAD ATOMIC" $ do
       bcfile <- compile "test/fromBitcode/atomicload.ll"
       ret <- readBitcode bcfile
@@ -141,7 +159,16 @@ spec_llvm = do
       let Right (_mbIdent, mod) = ret
       moduleInstructions mod `shouldSatisfy` (any isAtomicLoad)
       
---    xit "should be able to roundtrip LOAD ATOMIC"
+    it "should be able to roundtrip LOAD ATOMIC" $ do
+      bcfile <- compile "test/fromBitcode/atomicload.ll"
+      ret <- readBitcode bcfile
+      ret `shouldSatisfy` isModule
+      let Right mod = ret
+      writeFile' bcfile . map denormalize $ toBitCode mod
+      ret <- readBitcode bcfile
+      ret `shouldSatisfy` isModule
+      decompile bcfile `shouldReturn` "test/fromBitcode/atomicload.dis"
+      
     it "should be able to read STORE ATOMIC" $ do
       bcfile <- compile "test/fromBitcode/atomicstore.ll"
       ret <- readBitcode bcfile
@@ -149,4 +176,13 @@ spec_llvm = do
       let Right (_mbIdent, mod) = ret
       moduleInstructions mod `shouldSatisfy` (any isAtomicStore)
 
---    xit "should be able to roundtrip STORE ATOMIC"
+    it "should be able to roundtrip STORE ATOMIC" $ do
+      bcfile <- compile "test/fromBitcode/atomicstore.ll"
+      ret <- readBitcode bcfile
+      ret `shouldSatisfy` isModule
+      let Right mod = ret
+      writeFile' bcfile . map denormalize $ toBitCode mod
+      ret <- readBitcode bcfile
+      ret `shouldSatisfy` isModule
+      decompile bcfile `shouldReturn` "test/fromBitcode/atomicstore.dis"
+

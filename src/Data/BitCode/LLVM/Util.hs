@@ -83,6 +83,10 @@ instTy (Inst.Switch{})              = Nothing
 instTy (Inst.Cmp2 t _ _ _)          = Just t
 instTy (Inst.BinOp t _ _ _ _)       = Just t
 instTy (Inst.CmpXchg p _ _ _ _ _)   = Just (lower (ty p))
+instTy (Inst.Fence{})               = Nothing
+instTy (Inst.AtomicRMW p _ _ _ _)   = Just (lower (ty p))
+instTy (Inst.AtomicStore{})         = Nothing
+instTy (Inst.AtomicLoad t _ _ _ _)  = Just t
 
 -- GEP returns a pointer to it's type.
 instTy (Inst.Gep bt _ s idxs) | bt == ty s = Just $ lift $ drill (ty s) idxs
