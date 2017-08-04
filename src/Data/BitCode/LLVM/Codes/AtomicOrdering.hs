@@ -1,4 +1,8 @@
+{-# LANGUAGE DeriveGeneric #-}
 module Data.BitCode.LLVM.Codes.AtomicOrdering where
+
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
 
 -- | Encoded AtomicOrdering values.
 data AtomicOrdering
@@ -9,4 +13,6 @@ data AtomicOrdering
   | ORDERING_RELEASE -- 4
   | ORDERING_ACQREL -- 5
   | ORDERING_SEQCST -- 6
-  deriving (Show, Enum)
+  deriving (Show, Enum, Eq, Ord, Generic)
+
+instance Binary AtomicOrdering

@@ -63,7 +63,7 @@ library
       Data.BitCode.LLVM.ParamAttr
       Data.BitCode.LLVM.Pretty
       Data.BitCode.LLVM.Reader.Monad
-      Data.BitCode.LLVM.RWMOperations
+      Data.BitCode.LLVM.RMWOperations
       Data.BitCode.LLVM.StorageClass
       Data.BitCode.LLVM.ThreadLocalMode
       Data.BitCode.LLVM.ToBitCode
