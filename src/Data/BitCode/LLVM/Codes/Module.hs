@@ -17,7 +17,8 @@ data ModuleCode
   | DEPLIB -- 6
   -- | GLOBALVAR: [pointer type, isconst, initid, linkage, alignment, section, visibility, threadlocal, unnamed_addr, externally_initialized, dllstorageclass, comdat]
   | GLOBALVAR -- 7
-  -- | FUNCTION:  [type, callingconv, isproto, linkage, paramattr, alignment, section, visibility, gc, unnamed_addr, prologuedata, dllstorageclass, comdat, prefixdata, personality]
+  -- | FUNCTION:  v1: [type, callingconv, isproto, linkage, paramattr, alignment, section, visibility, gc, unnamed_addr, prologuedata, dllstorageclass, comdat, prefixdata, personality]
+  --              v2: [strtab_offset, strtab_size] ++ v1
   | FUNCTION -- 8,
   -- | ALIAS: [alias type, aliasee val#, linkage, visibility]
   | ALIAS_OLD --  9
@@ -25,12 +26,19 @@ data ModuleCode
   | PURGEVALS -- 10
   -- | GCNAME: [strchr x N]
   | GCNAME -- 11
-  -- | COMDAT: [selection_kind, name]
+  -- | COMDAT: v1: [selection_kind, name]
+  --           v2: [strtab_offset, strtab_size, selection_kind]
   | COMDAT -- 12
   -- | VSTOFFSET: [offset]
   | VSTOFFSET --  13
   -- | ALIAS: [alias value type, addrspace, aliasee val#, linkage, visibility]
   | ALIAS --  14
-  -- | METADATA_VALUES: [numvals]
-  | METADATA_VALUES -- 15
+  -- | METADATA_VALUES_UNUSED
+  | METADATA_VALUES_UNUSED -- 15
+  -- | SOURCE_FILENAME: [namechar x N]
+  | SOURCE_FILENAME -- 16
+  -- | HASH: [5*i32]
+  | HASH -- 17
+  -- | IFUNC: [ifunc value type, addrspace, resolver val#, linkage, visibility]
+  | IFUNC -- 18
   deriving (Show, Enum)

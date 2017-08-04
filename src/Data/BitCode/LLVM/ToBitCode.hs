@@ -153,7 +153,11 @@ instance ToNBitCode (Maybe Ident, Module) where
       --------------------------------------------------------------------------
       -- Compute the offsets
       identBlock   = toBitCode i
-      moduleHeader = [ mkRec MC.VERSION [mVersion] ] ++
+      -- [TODO]: we can only write Version 1 Bitcode.
+      --         version 2 with the symbol table might
+      --         be easier. However version two has
+      --         different record lengths.
+      moduleHeader = [ mkRec MC.VERSION [(1 :: Int) {-mVersion-}] ] ++
                      toBitCode typeList ++
                      [ mkRec MC.TRIPLE t | Just t <- [mTriple] ] ++
                      [ mkRec MC.DATALAYOUT dl | Just dl <- [mDatalayout] ] ++

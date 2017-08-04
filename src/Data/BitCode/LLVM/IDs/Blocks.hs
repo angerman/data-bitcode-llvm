@@ -23,6 +23,10 @@ data ModuleBlockID
   | FUNCTION_SUMMARY -- 20
   | OPERAND_BUNDLE_TAGS -- 21
   | METADATA_KIND -- 22
+  | STRTAB -- 23
+  | FULL_LTO_GLOBAL_SUMMARY -- 24
+  | SYMTAB -- 24
+  | SYNC_SCOPE_NAMES -- 25
   deriving (Show, Enum)
 
 -- x = ( Ident {iString = "APPLE_1_703.0.31_0", iEpoch = Current}
