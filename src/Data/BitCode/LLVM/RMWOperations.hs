@@ -8,17 +8,17 @@ import Data.Binary                       (Binary)
 -- The values of these enums have no fixed relation to the LLVM IR enum
 -- values.  Changing these will break compatibility with old files.
 data RMWOperations
-  = RWM_XCHG -- 0
-  | RWM_ADD -- 1
-  | RMW_SUB -- 2
-  | RMW_AND -- 3
-  | RMW_NAND -- 4
-  | RMW_OR -- 5
-  | RMW_XOR -- 6
-  | RMW_MAX -- 7
-  | RMW_MIN -- 8
-  | RMW_UMAX -- 9
-  | RMW_UMIN -- 10
+  = XCHG -- 0
+  | ADD -- 1
+  | SUB -- 2
+  | AND -- 3
+  | NAND -- 4
+  | OR -- 5
+  | XOR -- 6
+  | MAX -- 7
+  | MIN -- 8
+  | UMAX -- 9
+  | UMIN -- 10
   deriving (Show, Enum, Eq, Ord, Generic)
 
 instance Binary RMWOperations
