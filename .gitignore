@@ -19,3 +19,6 @@ cabal.sandbox.config
 cabal.project.local
 test/**/*.bc
 test/**/*.dis
+GNUmakefile
+ghc.mk
+.ghc.environment.*
