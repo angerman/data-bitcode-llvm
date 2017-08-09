@@ -98,6 +98,10 @@ isAtomicStore :: I.Inst -> Bool
 isAtomicStore (I.AtomicStore{}) = True
 isAtomicStore _ = False
 
+isSwitch :: I.Inst -> Bool
+isSwitch (I.Switch{}) = True
+isSwitch _ = False 
+
 spec_llvm :: Spec
 spec_llvm = do
   describe "fromBitcode" $ do
@@ -186,3 +190,19 @@ spec_llvm = do
       ret `shouldSatisfy` isModule
       decompile bcfile `shouldReturn` "test/fromBitcode/atomicstore.dis"
 
+    it "should be able to read SWITCH" $ do
+      bcfile <- compile "test/fromBitcode/switch.ll"
+      ret <- readBitcode bcfile
+      ret `shouldSatisfy` isModule
+      let Right (_mbIdent, mod) = ret
+      moduleInstructions mod `shouldSatisfy` (any isSwitch)
+
+    it "should be able to roundtrip SWITCH" $ do
+      bcfile <- compile "test/fromBitcode/switch.ll"
+      ret <- readBitcode bcfile
+      ret `shouldSatisfy` isModule
+      let Right mod = ret
+      writeFile' bcfile . map denormalize $ toBitCode mod
+      ret <- readBitcode bcfile
+      ret `shouldSatisfy` isModule
+      decompile bcfile `shouldReturn` "test/fromBitcode/switch.dis"

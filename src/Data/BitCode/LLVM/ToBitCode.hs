@@ -519,6 +519,16 @@ instance ToNBitCode (Maybe Ident, Module) where
                                                                         , fromEnum' order
                                                                         , fromEnum' scope
                                                                         ]
+              mkInstRec n (I.Switch val bbId bbIds)
+                = mkRec FC.INST_SWITCH $ [ lookupTypeIndex typeList (ty val)
+                                         , lookupRelativeSymbolIndex' n val
+                                         , bbId
+                                         ]
+                                         ++ concat [ [ lookupRelativeSymbolIndex' n val
+                                                     , bbId ]
+                                                   | (val, bbId) <- bbIds
+                                                   ]
+
               mkInstRec n i = error $ "Instruction " ++ (show i) ++ " not yet supported."
               -- Fold helper to keep track of the instruction count.
               mkInstRecFold :: (Int, [NBitCode]) -> I.Inst -> (Int, [NBitCode])

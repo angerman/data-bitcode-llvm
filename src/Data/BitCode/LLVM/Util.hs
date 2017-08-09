@@ -8,58 +8,60 @@ import qualified Data.BitCode.LLVM.Type as Ty
 import qualified Data.BitCode.LLVM.Value as Val
 import qualified Data.BitCode.LLVM.Instruction as Inst
 
+import GHC.Stack
+
 import Debug.Trace
 
-isPtr :: Ty.Ty -> Bool
+isPtr :: HasCallStack => Ty.Ty -> Bool
 isPtr (Ty.Ptr{}) = True
 isPtr _ = False
 
-isInt :: Ty.Ty -> Bool
+isInt :: HasCallStack => Ty.Ty -> Bool
 isInt (Ty.Int{}) = True
 isInt _ = False
 
-isArray :: Ty.Ty -> Bool
+isArray :: HasCallStack => Ty.Ty -> Bool
 isArray (Ty.Array{}) = True
 isArray _ = False
 
-isVector :: Ty.Ty -> Bool
+isVector :: HasCallStack => Ty.Ty -> Bool
 isVector (Ty.Vector{}) = True
 isVector _ = False
 
-isStruct :: Ty.Ty -> Bool
+isStruct :: HasCallStack => Ty.Ty -> Bool
 isStruct (Ty.StructAnon{}) = True
 isStruct (Ty.StructNamed{}) = True
 isStruct _ = False
 
-isFunction :: Ty.Ty -> Bool
+isFunction :: HasCallStack => Ty.Ty -> Bool
 isFunction (Ty.Function{}) = True
 isFunction _ = False
 
-isFunctionPtr :: Ty.Ty -> Bool
+isFunctionPtr :: HasCallStack => Ty.Ty -> Bool
 isFunctionPtr t = (isPtr t) && (isFunction (lower t))
 
-lift :: Ty.Ty -> Ty.Ty
+lift :: HasCallStack => Ty.Ty -> Ty.Ty
 lift t = Ty.Ptr 0 t
 
-lower :: Ty.Ty -> Ty.Ty
+lower :: HasCallStack => Ty.Ty -> Ty.Ty
 lower (Ty.Ptr _ t) = t
 lower t            = error . show $ text "Type:" <+> pretty t <+> text "cannot be lowerd."
 
-elemTy :: Ty.Ty -> Ty.Ty
+elemTy :: HasCallStack => Ty.Ty -> Ty.Ty
 elemTy (Ty.Array _ t)  = t
 elemTy (Ty.Vector _ t) = t
 elemTy t               = error . show $ text "Type:" <+> pretty t <+> text "does not have an element type."
 
-elemTys :: Ty.Ty -> [Ty.Ty]
+elemTys :: HasCallStack => Ty.Ty -> [Ty.Ty]
 elemTys (Ty.StructAnon _ ts)    = ts
 elemTys (Ty.StructNamed _ _ ts) = ts
 elemTys t                       = error . show $ text "Type:" <+> pretty t <+> text "does not have element types."
 
-funRetTy :: Ty.Ty -> Ty.Ty
+funRetTy :: HasCallStack => Ty.Ty -> Ty.Ty
 funRetTy (Ty.Ptr _ (Ty.Function _ t _)) = t
 funRetTy t                              = error . show $ text "Type:" <+> pretty t <+> parens (text (show t)) <+> text "is not a function type."
 
-funParamTys :: Ty.Ty -> [Ty.Ty]
+funParamTys :: HasCallStack => Ty.Ty -> [Ty.Ty]
 funParamTys (Ty.Ptr _ (Ty.Function _ _ ts)) = ts
 funParamTys t                               = error . show $ text "Type:" <+> pretty t <+> parens (text (show t)) <+> text "is not a function type."
 
@@ -67,7 +69,7 @@ funParamTys t                               = error . show $ text "Type:" <+> pr
 -- TODO: make this an HasType for Instructions. Use error where invalid; and have a
 --       separate function @hasResult@. (Or use undef?) As this is used in the tref
 --       computation fold.
-instTy :: Inst.Inst -> Maybe Ty.Ty
+instTy :: HasCallStack => Inst.Inst -> Maybe Ty.Ty
 instTy (Inst.Alloca t _ _)          = Just t
 instTy (Inst.Cast t _ _)            = Just t
 instTy (Inst.Load t _ _)            = Just t
@@ -82,7 +84,7 @@ instTy (Inst.Br{})                  = Nothing
 instTy (Inst.Switch{})              = Nothing
 instTy (Inst.Cmp2 t _ _ _)          = Just t
 instTy (Inst.BinOp t _ _ _ _)       = Just t
-instTy (Inst.CmpXchg p _ _ _ _ _)   = Just (lower (ty p))
+instTy (Inst.CmpXchg p _ _ _ _ _)   = Just (Ty.StructAnon False [(lower (ty p)), Ty.Int 1]) -- { lower ty, i1 }
 instTy (Inst.Fence{})               = Nothing
 instTy (Inst.AtomicRMW p _ _ _ _)   = Just (lower (ty p))
 instTy (Inst.AtomicStore{})         = Nothing
@@ -91,12 +93,15 @@ instTy (Inst.AtomicLoad t _ _ _ _)  = Just t
 -- GEP returns a pointer to it's type.
 instTy (Inst.Gep bt _ s idxs) | bt == ty s = Just $ lift $ drill (ty s) idxs
                               | otherwise  = error $ "Broken getElementPointer. Basetype: " ++ show bt ++ " and value type type: " ++ show (lower (ty s)) ++ " don't match!"
+instTy (Inst.ExtractValue bt s idxs) | bt == ty s = Just $ drill (ty s) idxs
+                                     | otherwise = error $ "Broken extractValue. Basetype: " ++ show bt ++ " and value type type: " ++ show (lower (ty s)) ++ " don't match!"
 instTy i                       = error $ "No instTy for instruction: " ++ show i
 
+
 -- TODO: Support Vector indexes.
-drill :: Ty.Ty -> [Val.Symbol] -> Ty.Ty
+drill :: HasCallStack => Ty.Ty -> [Val.Symbol] -> Ty.Ty
 drill t = drill' t . map Val.symbolValue
-drill' :: Ty.Ty -> [Val.Value] -> Ty.Ty
+drill' :: HasCallStack => Ty.Ty -> [Val.Value] -> Ty.Ty
 drill' t [] = t
 drill' (Ty.Array _ t)  (Val.Constant (Ty.Int{}) (Val.Int _):vs)  = drill' t vs
 drill' t@(Ty.Array _ _)  (idx:_)                                 = error $ "Cannot drill into " ++ show (pretty t) ++ " with " ++ show (pretty idx)
@@ -114,7 +119,7 @@ drill' t@(Ty.StructNamed _ _ tys) (Val.Constant (Ty.Int 32) (Val.Int n):vs)
 drill' t@(Ty.StructNamed _ _ _) (idx:_)                    = error $ "Can only drill into struct " ++ show t ++ " with int32, " ++ show idx ++ " given."
 
 -- The terminator instructions are: ‘ret‘, ‘br‘, ‘switch‘, ‘indirectbr‘, ‘invoke‘, ‘resume‘, ‘catchswitch‘, ‘catchret‘, ‘cleanupret‘, and ‘unreachable‘.
-isTerminator :: Inst.Inst -> Bool
+isTerminator :: HasCallStack => Inst.Inst -> Bool
 isTerminator (Inst.Ret{})    = True
 isTerminator (Inst.UBr{})    = True
 isTerminator (Inst.Br{})     = True

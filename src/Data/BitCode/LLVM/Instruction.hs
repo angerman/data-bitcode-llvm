@@ -50,6 +50,11 @@ data Inst
     Bool  -- ^ inbounds
     Symbol -- ^ Value indexed into
     [Symbol] -- ^ indices.
+  -- | Extract value
+  | ExtractValue
+    Ty     -- ^ aggregate type
+    Symbol -- ^ Value indexed into
+    [Symbol] -- ^ indices.
   -- | Return Terminator
   | Ret (Maybe Symbol)
   -- | Unconditional branch
