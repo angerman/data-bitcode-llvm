@@ -524,11 +524,14 @@ instance ToNBitCode (Maybe Ident, Module) where
                                          , lookupRelativeSymbolIndex' n val
                                          , bbId
                                          ]
-                                         ++ concat [ [ lookupRelativeSymbolIndex' n val
+                                         ++ concat [ [ lookupSymbolIndex allVals val
                                                      , bbId ]
                                                    | (val, bbId) <- bbIds
                                                    ]
 
+              mkInstRec n (I.ExtractValue val idxs)
+                = mkRec FC.INST_EXTRACTVAL $ [ lookupRelativeSymbolIndex' n val ] ++ idxs
+                
               mkInstRec n i = error $ "Instruction " ++ (show i) ++ " not yet supported."
               -- Fold helper to keep track of the instruction count.
               mkInstRecFold :: (Int, [NBitCode]) -> I.Inst -> (Int, [NBitCode])

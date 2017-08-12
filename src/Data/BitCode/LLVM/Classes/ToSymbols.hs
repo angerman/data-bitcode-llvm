@@ -78,7 +78,7 @@ instance ToSymbols Inst where
   symbols (I.Call _ _ _ s _ ss) = s:ss
   symbols (I.Cmp2 _ s s' _)     = [s,s']
   symbols (I.Gep _ _ s ss)      = s:ss
-  symbols (I.ExtractValue _ s ss) = s:ss
+  symbols (I.ExtractValue s _)  = [s]
   symbols (I.Ret (Just s))      = [s]
   symbols (I.Ret Nothing)       = []
   symbols (I.UBr _)             = []
@@ -98,7 +98,7 @@ instance ToSymbols Inst where
   fsymbols s_ (I.Call _ _ _ s _ ss) = foldl fsymbols s_ (s:ss)
   fsymbols s_ (I.Cmp2 _ s s' _)     = foldl fsymbols s_ [s,s']
   fsymbols s_ (I.Gep _ _ s ss)      = foldl fsymbols s_ (s:ss)
-  fsymbols s_ (I.ExtractValue _ s ss) = foldl fsymbols s_ (s:ss)
+  fsymbols s_ (I.ExtractValue s _)  = fsymbols s_ s
   fsymbols s_ (I.Ret (Just s))      = fsymbols s_ s
   fsymbols s_ (I.Ret Nothing)       = s_
   fsymbols s_ (I.UBr _)             = s_

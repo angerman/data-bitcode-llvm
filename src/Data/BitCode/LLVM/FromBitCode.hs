@@ -49,6 +49,8 @@ import qualified Data.BitCode.LLVM.Flags as Flags
 import Data.BitCode.LLVM.Opcodes.Binary as BinOp
 import qualified Data.BitCode.LLVM.Opcodes.Cast as CastOp
 
+import GHC.Stack (HasCallStack)
+
 
 -- Conceptuall we take bitcode and interpret it as LLVM IR.
 -- This should result in a single module.
@@ -194,7 +196,7 @@ toSigned v | testBit v 0 = complement (shift v (-1))
            | otherwise   = shift v (-1)
 
 -- | Parse constants.
-parseConstants :: [NBitCode] -> LLVMReader ()
+parseConstants :: HasCallStack => [NBitCode] -> LLVMReader ()
 parseConstants = foldM_ parseConstant undefined . records
   where parseConstant :: Ty -> (Constant,[BC.Val]) -> LLVMReader Ty
         parseConstant ty = \case
@@ -299,16 +301,16 @@ parseMetadata = mapM_ parseMetadata . records
 
 -- * module codes
 
-parseVersion :: [BC.Val] -> Word64
+parseVersion :: HasCallStack => [BC.Val] -> Word64
 parseVersion [v] = v
 
-parseTriple :: [BC.Val] -> String
+parseTriple :: HasCallStack => [BC.Val] -> String
 parseTriple = map toEnum'
 
-parseDataLayout :: [BC.Val] -> String
+parseDataLayout :: HasCallStack => [BC.Val] -> String
 parseDataLayout = map toEnum'
 
-parseGlobalVar :: [BC.Val] -> LLVMReader ()
+parseGlobalVar :: HasCallStack => [BC.Val] -> LLVMReader ()
 parseGlobalVar vals
   | length vals < 6 = error $ "Invalid record: Global Var must have at least six operands. " ++ show vals ++ " given."
   | [ ptrTyId, isConst, initId, linkage, paramAttrId, section ] <- vals = do
@@ -342,12 +344,12 @@ parseGlobalVar vals
 --       if type can not be reconstructed, invalid record.
 --       if ty can not be cast to function type. -> invalid value
 
-parseFunctionDecl :: [BC.Val] -> LLVMReader ()
+parseFunctionDecl :: HasCallStack => [BC.Val] -> LLVMReader ()
 parseFunctionDecl vals = askVersion >>= \case
   1 -> parseFunctionDecl' vals
   2 -> parseFunctionDecl' (drop 2 vals)
 
-parseFunctionDecl' :: [BC.Val] -> LLVMReader ()
+parseFunctionDecl' :: HasCallStack => [BC.Val] -> LLVMReader ()
 parseFunctionDecl'
   [ tyId, cconv, isProto, linkage                       -- 4
   , paramAttrId, alignment, section, visibility, gc     -- 9
@@ -370,7 +372,8 @@ upgradeDLLImportExportLinkage = \case
   Linkage.Appending -> DLLStorageClass.DLLExport
   _                 -> DLLStorageClass.Default
 
-parseAlias :: Bool     -- ^ New Alias
+parseAlias :: HasCallStack
+           => Bool     -- ^ New Alias
            -> [BC.Val] -- Values
            -> LLVMReader ()
 
@@ -404,10 +407,10 @@ parseAlias True [ tyId, addrSpace, valId, linkage ]
   = parseAlias True [ tyId, addrSpace, valId, linkage, (fromIntegral (fromEnum Visibility.Default)) ]
 
 -- helper
-toEnum' :: (Integral a, Enum e) => a -> e
+toEnum' :: (HasCallStack, Integral a, Enum e) => a -> e
 toEnum' = toEnum . fromIntegral
 
-parseTopLevel :: [NBitCode] -> LLVMReader (Maybe Ident, Module)
+parseTopLevel :: HasCallStack => [NBitCode] -> LLVMReader (Maybe Ident, Module)
 parseTopLevel bs = do
   ident <- case lookupBlock IDENTIFICATION bs of
     Just b -> Just <$> parseIdent b
@@ -417,7 +420,7 @@ parseTopLevel bs = do
   mod <- parseModule moduleBlock
   return (ident, mod)
 
-resolveFwdRefs :: [Symbol] -> [Symbol]
+resolveFwdRefs :: HasCallStack => [Symbol] -> [Symbol]
 resolveFwdRefs ss = map (fmap' resolveFwdRef') ss
   where
     -- TODO: Maybe Symbol should be more generic? Symbol a,
@@ -433,7 +436,7 @@ resolveFwdRefs ss = map (fmap' resolveFwdRef') ss
     resolveFwdRef' x = x
 
 -- | Parse a module from a set of blocks (the body of the module)
-parseModule :: [NBitCode] -> LLVMReader Module
+parseModule :: HasCallStack => [NBitCode] -> LLVMReader Module
 parseModule bs = do
   let Just version = parseVersion     <$> lookupRecord VERSION bs
       triple  = parseTriple           <$> lookupRecord TRIPLE bs
@@ -482,7 +485,7 @@ parseModule bs = do
                           ) . zip [0..]
 
 -- | Parse value symbol table
-parseSymbolValueTable :: [NBitCode] -> ValueSymbolTable
+parseSymbolValueTable :: HasCallStack => [NBitCode] -> ValueSymbolTable
 parseSymbolValueTable = foldl (\l x -> parseSymbolValue x:l) [] . filter f . records
   where parseSymbolValue :: (ValueSymtabCodes, [BC.Val]) -> (Int, ValueSymbolEntry)
         parseSymbolValue (VST_CODE_ENTRY,   (idx:vs)) = (fromIntegral idx, Entry $ map toEnum' vs)
@@ -493,7 +496,7 @@ parseSymbolValueTable = foldl (\l x -> parseSymbolValue x:l) [] . filter f . rec
         f _ = False
 
 -- block ids
-parseModuleBlock :: (ModuleBlockID, [NBitCode]) -> LLVMReader ()
+parseModuleBlock :: HasCallStack => (ModuleBlockID, [NBitCode]) -> LLVMReader ()
 parseModuleBlock (id,bs) = trace ("parseModuleBlock " ++ show id) >> case (id,bs) of
   ({-  9 -}PARAMATTR, bs) -> parseAttr bs
   ({- 10 -}PARAMATTR_GROUP, bs) -> parseAttrGroup bs
@@ -515,7 +518,7 @@ parseModuleBlock (id,bs) = trace ("parseModuleBlock " ++ show id) >> case (id,bs
   ({- 26 -}SYNC_SCOPE_NAMES, bs) -> return () -- TODO
   c -> fail $ "Encountered unhandled block: " ++ show c
 
-parseModuleRecord :: (ModuleCode, [BC.Val]) -> LLVMReader ()
+parseModuleRecord :: HasCallStack => (ModuleCode, [BC.Val]) -> LLVMReader ()
 parseModuleRecord (id,bs) = trace ("parseModuleRecord " ++ show id) >> case (id,bs) of
   ({-  1 -}VERSION, _) -> pure () -- ignore, it's being picked apart somewhere else.
   ({-  2 -}TRIPLE, _) -> pure () -- ignore
@@ -564,7 +567,7 @@ parseModuleRecord (id,bs) = trace ("parseModuleRecord " ++ show id) >> case (id,
 -- Function bodies should come in sequence of their declaration in the GV.
 -- prototype functions are external.
 --
-parseFunction :: (Symbol, [NBitCode]) -> LLVMReader F.Function
+parseFunction :: HasCallStack => (Symbol, [NBitCode]) -> LLVMReader F.Function
 parseFunction (f@(Named _ V.Function{..}), b) = do
   -- remember the size of the value list. We need to trim it back down after
   -- parsing; and might want to attach the new values to the constants of the Function.
@@ -599,7 +602,7 @@ parseFunction ((Unnamed f), b) = parseFunction ((Named "dummy" f), b)
 parseFunction _ = fail "Invalid arguments"
 
 
-parseFunctionBlock :: (ModuleBlockID, [NBitCode]) -> LLVMReader ()
+parseFunctionBlock :: HasCallStack => (ModuleBlockID, [NBitCode]) -> LLVMReader ()
 parseFunctionBlock = \case
   (CONSTANTS, b) -> parseConstants b
   (B.METADATA, b) -> parseMetadata b
@@ -607,10 +610,14 @@ parseFunctionBlock = \case
   (B.USELIST, b) -> trace ("Cannot parse uselist yet (" ++ show b ++ ")") >> return ()
   _ -> pure ()
 
-getRelativeVal :: (Integral a) => [Symbol] -> a -> LLVMReader Symbol
+getRelativeVal :: (HasCallStack, Integral a) => [Symbol] -> a -> LLVMReader Symbol
 getRelativeVal refs n = do
   valueList <- askValueList
-  pure $ reverse (valueList ++ refs) !! (fromIntegral n - 1)
+  let lst = reverse (valueList ++ refs)
+      idx = fromIntegral n - 1
+  if idx < 0 || idx > length lst
+    then fail $ "index " ++ (show idx) ++ " out of range [0, " ++ show (length lst) ++ ") of avaliable relative values."
+    else pure (lst !! idx) 
 
 
 -- TODO: filter out the `FUNC_CODE_DECLAREBLOCKS` in
@@ -630,7 +637,7 @@ foldHelper s@((BasicBlock insts):bbs,vs) instr = do
                    True -> return ((BasicBlock []):bbs', vs')
                    False -> return                (bbs', vs')
 
-parseInst :: [Symbol] -> (Instruction, [BC.Val]) -> LLVMReader (Maybe Inst)
+parseInst :: HasCallStack => [Symbol] -> (Instruction, [BC.Val]) -> LLVMReader (Maybe Inst)
 parseInst rs = \case
   -- 1
   (DECLAREBLOCKS, x) | length x == 0 -> error "Invalid record: DECLAREBLOCKS must not be empty!"
@@ -728,7 +735,9 @@ parseInst rs = \case
   -- (INST_STORE_OLD [ ptrty, ptr, val, align, vol])
   -- 25 - Unused
   -- 26
-  -- (INST_EXTRACTVAL, ops)
+  (INST_EXTRACTVAL, (op:idxs)) -> do
+    val <- getRelativeVal rs op
+    return . Just $ ExtractValue val idxs 
   -- 27
   -- (INST_INSERTVAL, ops)
   -- 28

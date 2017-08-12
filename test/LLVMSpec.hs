@@ -17,13 +17,14 @@ import Data.BitCode.Writer.Combinators (withHeader)
 
 import System.Process (readProcessWithExitCode)
 import System.Exit (ExitCode(ExitSuccess))
-import System.FilePath ((-<.>))
+import System.FilePath ((-<.>), (</>))
 import Data.Either (isRight)
+import GHC.Stack (HasCallStack)
 
-writeFile' :: FilePath -> [BitCode] -> IO ()
+writeFile' :: HasCallStack => FilePath -> [BitCode] -> IO ()
 writeFile' fp = BCM.writeFile fp . withHeader True . emitTopLevel
 
-compile :: FilePath -> IO FilePath
+compile :: HasCallStack => FilePath -> IO FilePath
 compile f = do
   (exit, _out, _err) <- readProcessWithExitCode
                         "clang"
@@ -40,7 +41,7 @@ compile f = do
   where
     fout = f -<.> "bc"
 
-decompile :: FilePath -> IO FilePath
+decompile :: HasCallStack => FilePath -> IO FilePath
 decompile f = do
   (exit, _out, _err) <- readProcessWithExitCode
                         "llvm-dis"
@@ -54,12 +55,12 @@ decompile f = do
   where
     fout = f -<.> "dis"
 
-readBitcode :: FilePath -> IO (Either String (Maybe Ident, Module))
+readBitcode :: HasCallStack => FilePath -> IO (Either String (Maybe Ident, Module))
 readBitcode f = do
   res <- BC.readFile f
   return $ (evalLLVMReader . parseTopLevel . catMaybes . map normalize) =<< res
 
-moduleInstructions :: Module -> [I.Inst]
+moduleInstructions :: HasCallStack => Module -> [I.Inst]
 moduleInstructions m =
   concatMap funcInsts (LLVM.mFns m)
   where
@@ -74,33 +75,54 @@ moduleInstructions m =
 --       LLVM EDSL, and as such tests for writing modules
 --       should be done there.
 
-isModule :: Either String (Maybe Ident, Module) -> Bool
+isModule :: HasCallStack => Either String (Maybe Ident, Module) -> Bool
 isModule = isRight
 
 
-isCmpXchg :: I.Inst -> Bool
+isCmpXchg, isFence, isAtomicRMW, isAtomicLoad, isAtomicStore, isSwitch, isExtractValue
+  :: HasCallStack => I.Inst -> Bool
+
 isCmpXchg (I.CmpXchg{}) = True
 isCmpXchg _ = False
 
-isFence :: I.Inst -> Bool
 isFence (I.Fence{}) = True
 isFence _ = False
 
-isAtomicRMW :: I.Inst -> Bool
 isAtomicRMW (I.AtomicRMW{}) = True
 isAtomicRMW _ = False
 
-isAtomicLoad :: I.Inst -> Bool
 isAtomicLoad (I.AtomicLoad{}) = True
 isAtomicLoad _ = False
 
-isAtomicStore :: I.Inst -> Bool
 isAtomicStore (I.AtomicStore{}) = True
 isAtomicStore _ = False
 
-isSwitch :: I.Inst -> Bool
 isSwitch (I.Switch{}) = True
-isSwitch _ = False 
+isSwitch _ = False
+
+isExtractValue (I.ExtractValue{}) = True
+isExtractValue _ = False
+
+
+compileModule :: HasCallStack => FilePath -> IO (FilePath, (Maybe Ident, Module))
+compileModule fname = do
+  bcfile <- compile $ "test/fromBitcode" </> fname
+  ret <- readBitcode bcfile
+  ret `shouldSatisfy` isModule
+  let Right mod = ret
+  return (bcfile, mod)
+
+roundtripModule :: HasCallStack => FilePath -> IO [String]
+roundtripModule fname = do
+  (bcfile, mod) <- compileModule fname
+  -- write the module back into the same file
+  writeFile' bcfile . map denormalize $ toBitCode mod
+  -- try to read it again
+  ret <- readBitcode bcfile
+  ret `shouldSatisfy` isModule
+  -- make sure llvm doesn't throw up trying to decompile it
+  decompile bcfile `shouldReturn` (bcfile -<.> "dis")
+  lines <$> Prelude.readFile (bcfile -<.> "dis")
 
 spec_llvm :: Spec
 spec_llvm = do
@@ -206,3 +228,11 @@ spec_llvm = do
       ret <- readBitcode bcfile
       ret `shouldSatisfy` isModule
       decompile bcfile `shouldReturn` "test/fromBitcode/switch.dis"
+
+    it "should be able to read EXTRACT VALUE" $ do
+      (bcfile, (_mbIdent, mod)) <- compileModule "extractvalue.ll"
+      moduleInstructions mod `shouldSatisfy` (any isExtractValue)
+
+    it "should be able to roundtrip EXTRACT VALUE" $ do
+      _ <- roundtripModule "extractvalue.ll"
+      return ()

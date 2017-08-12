@@ -18,6 +18,7 @@ import Data.BitCode.LLVM.Codes.SynchronizationScope (AtomicSynchScope)
 
 import GHC.Generics                      (Generic)
 import Data.Binary                       (Binary)
+import Data.Word                         (Word64)
 
 data TailCallKind = None | Tail | MustTail | NoTail deriving (Eq, Show, Generic)
 
@@ -52,9 +53,8 @@ data Inst
     [Symbol] -- ^ indices.
   -- | Extract value
   | ExtractValue
-    Ty     -- ^ aggregate type
     Symbol -- ^ Value indexed into
-    [Symbol] -- ^ indices.
+    [Word64] -- ^ indices.
   -- | Return Terminator
   | Ret (Maybe Symbol)
   -- | Unconditional branch
