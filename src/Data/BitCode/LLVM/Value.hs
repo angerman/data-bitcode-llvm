@@ -5,7 +5,7 @@ module Data.BitCode.LLVM.Value where
 
 import Data.Word                         (Word16, Word32, Word64)
 import Data.BitCode.LLVM.Type            (Ty)
-import Data.BitCode.LLVM.Linkage         (Linkage)
+import Data.BitCode.LLVM.Linkage         (Linkage(..))
 import Data.BitCode.LLVM.Visibility      (Visibility)
 import Data.BitCode.LLVM.ThreadLocalMode (ThreadLocalMode)
 import Data.BitCode.LLVM.StorageClass    (DLLStorageClass)
@@ -17,6 +17,8 @@ import Data.BitCode.LLVM.Classes.HasType
 
 import GHC.Generics                      (Generic)
 import Data.Binary                       (Binary)
+
+import GHC.Stack (HasCallStack)
 
 -- | Just a reference.
 type Ref = Int
@@ -125,6 +127,26 @@ data Value
   | Label Ty
   deriving (Show, Ord, Generic)
 
+class HasLinkage a where
+  getLinkage :: a -> Linkage
+  setLinkage :: Linkage -> a -> a
+
+external, private, internal :: (HasCallStack, HasLinkage a) => a -> a
+external = setLinkage External
+private  = setLinkage Private
+internal = setLinkage Private
+
+instance HasLinkage Value where
+  getLinkage (Global{gLinkage = l})   = l
+  getLinkage (Function{fLinkage = l}) = l 
+  getLinkage (Alias{aLinkage = l})    = l
+  getLinkage other = error $ show other ++ " has no linkage!" 
+
+  setLinkage l g@(Global{})   = g { gLinkage = l }
+  setLinkage l f@(Function{}) = f { fLinkage = l }
+  setLinkage l a@(Alias{})    = a { aLinkage = l }
+  setLinkage _ other = error $ show other ++ " has no linkage!"
+
 instance Eq Value where
   Global ty cst as i l pa s v tl ua ei sc c == Global ty' cst' as' i' l' pa' s' v' tl' ua' ei' sc' c'
     =   ty == ty'
@@ -192,7 +214,13 @@ instance Functor Named where
   fmap f (Named n x) = Named n (f x)
   fmap f (Unnamed x) = Unnamed (f x)
 
+
 type Symbol = Named Value
+
+instance HasLinkage a => HasLinkage (Named a) where
+  getLinkage (Named _ x) = getLinkage x
+  getLinkage (Unnamed x) = getLinkage x
+  setLinkage l = fmap (setLinkage l)  
 
 symbolValue :: Symbol -> Value
 symbolValue (Named _ v) = v

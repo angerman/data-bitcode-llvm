@@ -7,7 +7,7 @@ module Data.BitCode.LLVM.Function where
 
 import Data.BitCode.LLVM.Types
 
-import Data.BitCode.LLVM.Value       (Symbol)
+import Data.BitCode.LLVM.Value       (Symbol, HasLinkage(..))
 import Data.BitCode.LLVM.Instruction (Inst)
 import Data.Binary                   (Binary)
 
@@ -45,6 +45,10 @@ bimap f (NamedBlock n bi) = (NamedBlock n (map f bi))
 -- TODO: dSig is somewhat ugly, I'd lke enforce only function values here.
 data Function = Function { dSig :: Symbol, dConst :: [Symbol], dBody :: [BasicBlock] }
   deriving (Show, Eq, Generic)
+
+instance HasLinkage Function where
+  getLinkage = getLinkage . dSig
+  setLinkage l f = f { dSig = setLinkage l (dSig f) }
 
 fbmap :: (BasicBlock -> BasicBlock) -> Function -> Function
 fbmap f x@(Function{..}) = x { dBody = map f dBody }
