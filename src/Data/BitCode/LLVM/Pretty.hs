@@ -14,6 +14,8 @@ import Data.BitCode.LLVM.Type  as T
 import Data.BitCode.LLVM.Function as F
 import Data.BitCode.LLVM.Instruction as I
 import Data.BitCode.LLVM.CallingConv as C
+import Data.BitCode.LLVM.Codes.AtomicOrdering (AtomicOrdering)
+import Data.BitCode.LLVM.Codes.SynchronizationScope (AtomicSynchScope)
 -- -----------------------------------------------------------------------------
 -- Pretty class to simplify things a little
 class Pretty a where
@@ -148,11 +150,17 @@ instance Pretty Inst where
     | otherwise = text "WARN: Call without function or ref symbol not yet supported; are you sure you want this?"
   pretty (Cmp2   t l r p)  = parens (pretty l) <+> text (show p) <+> parens (pretty r) <+> text "::" <+> pretty t
   pretty (I.Gep  t ib v idxs) = text "getElementPointer" <+> (if ib then text "inbounds" else empty) <+> pretty v <+> text "!!" <+> hcat (map pretty idxs)
+  pretty (ExtractValue v idxs) = text "extract value" <+> pretty v <+> text "!!" <+> hcat (map (text . show) idxs) 
   pretty (Ret v)       = text "ret" <+> parens (pretty v)
   pretty (UBr bbId)    = text "br" <+> pretty bbId
   pretty (Br on bbId bbId') = text "br" <+> parens (pretty on) <+> pretty bbId <+> pretty bbId'
   pretty (Switch on defBbId cases) = text "case" <+> parens (pretty on) <+> text "of"
     $+$ nest 2 (vcat (map (\(val,bbId) -> pretty val <+> text "->" <+> pretty bbId) cases) $+$ text "_ ->" <+> pretty defBbId)
+  pretty (Fence ord scope) = text "fence" <+> pretty ord <+> pretty scope
+  pretty (CmpXchg dst cmp new ord scope ford) = text "cmpxchg"
+  pretty (AtomicRMW dst val _op _ord _scope) = text "atomicRMW" <+> pretty dst <+> pretty val
+  pretty (AtomicStore v r _ ord scope)   = text "atomic" <+> pretty r <+> text "->" <+> pretty v
+  pretty (AtomicLoad t v _ ord scope)    = text "atomic load" <+> parens (pretty v) <+> text "::" <+> pretty t
 -- -----------------------------------------------------------------------------
 -- Identification
 --
@@ -160,6 +168,14 @@ instance Pretty Ident where
   pretty (Ident s e) = text "Ident"
     $$ nest 3 (text s <+> int (fromEnum e))
 
+-- -----------------------------------------------------------------------------
+-- Atomic Ordering
+--
+instance Pretty AtomicOrdering where
+  pretty = text . map toLower . drop 9 . show 
+
+instance Pretty AtomicSynchScope where
+  pretty = text . map toLower . show
 -- -----------------------------------------------------------------------------
 -- Module
 --
