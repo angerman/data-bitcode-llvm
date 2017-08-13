@@ -106,7 +106,7 @@ instance ToSymbols Inst where
   fsymbols s_ (I.BinOp _ _ l r _)   = foldl fsymbols s_ [l, r]
   fsymbols s_ (I.Switch s _ sbs)    = foldl fsymbols s_ (s:map fst sbs)
   fsymbols s_ (I.CmpXchg p c n _ _ _) = foldl fsymbols s_ [p, c, n]
-  fsymbols s_ (I.Fence _ _)         = []
+  fsymbols s_ (I.Fence _ _)         = s_
   fsymbols s_ (I.AtomicRMW s s' _ _ _) = foldl fsymbols s_ [s, s']
   fsymbols s_ (I.AtomicStore s s' _ _ _) = foldl fsymbols s_ [s, s']
   fsymbols s_ (I.AtomicLoad _ s _ _ _) = fsymbols s_ s
