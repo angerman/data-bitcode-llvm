@@ -32,6 +32,8 @@ import Data.Bits (FiniteBits, (.|.), shift, setBit)
 
 import Debug.Trace
 
+import GHC.Stack (HasCallStack)
+
 -- to compute the length of emitted bitcode.
 import Data.BitCode (denormalize)
 import Data.BitCode.Writer (emitTopLevel)
@@ -45,7 +47,7 @@ import Control.Applicative ((<|>))
 -- Turn things into NBitCode.
 --
 class ToNBitCode a where
-  toBitCode :: a -> [NBitCode]
+  toBitCode :: HasCallStack => a -> [NBitCode]
 
 -- | Rerturns the Identification Block
 instance ToNBitCode Ident where
@@ -87,17 +89,17 @@ instance {-# OVERLAPPING #-} ToNBitCode [T.Ty] where
           mkTypeRec T.Token                  = [ mkEmptyRec TC.TOKEN ]
 
 
-lookupIndexGeneric :: (Pretty a, Eq a, Show a, Integral b) => [a] -> a -> b
+lookupIndexGeneric :: (HasCallStack, Pretty a, Eq a, Show a, Integral b) => [a] -> a -> b
 lookupIndexGeneric xs x = case elemIndex x xs of
   Just i -> fromIntegral i
   Nothing -> error . show $ text "Unable to find" <+> pretty x <+> text "in" <+> pretty xs
 
-lookupTypeIndex :: Integral b => [T.Ty] -> T.Ty -> b
+lookupTypeIndex :: (HasCallStack, Integral b) => [T.Ty] -> T.Ty -> b
 lookupTypeIndex ts t = case elemIndex t ts of
   Just i  -> fromIntegral i
   Nothing -> error . show $ text "Unable to find type" <+> pretty t <+> text "in" <+> pretty ts
 
-lookupValueIndex :: Integral b => [V.Value] -> V.Value -> b
+lookupValueIndex :: (HasCallStack, Integral b) => [V.Value] -> V.Value -> b
 lookupValueIndex vs f@(V.Function{..}) = case (elemIndex f vs) of
   Just i  -> fromIntegral i
   Nothing -> error . show $ text "Unable to find function" <+> pretty f <+> text "in" <+> pretty vs
@@ -105,7 +107,7 @@ lookupValueIndex vs v = case elemIndex v vs of
   Just i  -> fromIntegral i
   Nothing -> error . show $ text "Unable to find value" <+> pretty v <+> text "in" <+> pretty vs
 
-lookupSymbolIndex :: Integral b => [V.Symbol] -> V.Symbol -> b
+lookupSymbolIndex :: (HasCallStack, Integral b) => [V.Symbol] -> V.Symbol -> b
 lookupSymbolIndex ss s = case elemIndex s ss of
   Just i  -> fromIntegral i
   Nothing -> error . show $ text "Unable to find symbol" <+> pretty s <+> text "in" <+> pretty ss
@@ -233,7 +235,8 @@ instance ToNBitCode (Maybe Ident, Module) where
       typeList = foldl T.ftypes topLevelTypes $ map ty fullFunctionSymbols
 
       -- | Turn a set of Constant Values unto BitCode Records.
-      mkConstBlock :: [V.Symbol] -- ^ values that can be referenced.
+      mkConstBlock :: HasCallStack
+                   => [V.Symbol] -- ^ values that can be referenced.
                    -> [V.Symbol] -- ^ the constants to turn into BitCode
                    -> [NBitCode]
       mkConstBlock values consts | length consts > 0 = [ mkBlock CONSTANTS .
@@ -249,7 +252,7 @@ instance ToNBitCode (Maybe Ident, Module) where
             | (V.Constant t c) <- V.symbolValue s
             = (mkRec CC.CST_CODE_SETTYPE (lookupTypeIndex typeList t :: Int)):mkConstRec values c:map (mkConstRec values . V.cConst . V.symbolValue) cs
             | otherwise = error $ "Invalid constant " ++ show s
-      mkConstRec :: [V.Symbol] -> V.Const -> NBitCode
+      mkConstRec :: HasCallStack => [V.Symbol] -> V.Const -> NBitCode
       mkConstRec constantSymbols V.Null               = mkEmptyRec CC.CST_CODE_NULL
       mkConstRec constantSymbols V.Undef              = mkEmptyRec CC.CST_CODE_UNDEF
       mkConstRec constantSymbols (V.Int n)            = mkRec CC.CST_CODE_INTEGER (fromSigned n)
@@ -297,7 +300,7 @@ instance ToNBitCode (Maybe Ident, Module) where
       fromEnum' :: (Enum a, Integral b) => a -> b
       fromEnum' = fromIntegral . fromEnum
 
-      mkGlobalRec :: V.Value -> NBitCode
+      mkGlobalRec :: HasCallStack => V.Value -> NBitCode
       mkGlobalRec (V.Global{..}) = mkRec MC.GLOBALVAR [ lookupTypeIndex typeList t -- NOTE: We store the pointee type.
                                                       , 1 .|. shift (bool gIsConst) 1 .|. shift gAddressSpace 2
                                                       , fromMaybe 0 ((+1) . lookupSymbolIndex valueList <$> gInit)
@@ -313,7 +316,7 @@ instance ToNBitCode (Maybe Ident, Module) where
                                                       ]
                                    where (T.Ptr _ t) = gPointerType
 
-      mkFunctionRec :: V.Value -> NBitCode
+      mkFunctionRec :: HasCallStack => V.Value -> NBitCode
       mkFunctionRec (V.Function{..}) = mkRec MC.FUNCTION [ lookupTypeIndex typeList t -- NOTE: Similar to Globals we store the pointee type.
                                                          , fromEnum' fCallingConv
                                                          , bool fIsProto
@@ -335,7 +338,7 @@ instance ToNBitCode (Maybe Ident, Module) where
       --------------------------------------------------------------------------
       -- VALUE SYMBOL TABLE
       --
-      mkSymTabBlock :: [V.Symbol] -> NBitCode
+      mkSymTabBlock :: HasCallStack => [V.Symbol] -> NBitCode
       -- TODO: drop `catMaybes`, once we support all symbols (FNENTRY, BBENTRY)
       mkSymTabBlock syms = mkBlock VALUE_SYMTAB (catMaybes (map mkSymTabRec namedIdxdSyms))
         where namedIdxdSyms = [(idx, name, value) | (idx, (V.Named name value)) <- zip [0..] syms]
@@ -354,7 +357,7 @@ instance ToNBitCode (Maybe Ident, Module) where
       --------------------------------------------------------------------------
       -- FUNCTIONS (BasicBlocks)
       --
-      mkFunctionBlock :: Function -> NBitCode
+      mkFunctionBlock :: HasCallStack => Function -> NBitCode
       {- Declare blocks, constants, instructions, vst -}
       mkFunctionBlock (Function sig consts bbs)
         = mkBlock FUNCTION $
@@ -383,7 +386,7 @@ instance ToNBitCode (Maybe Ident, Module) where
               bodyVals = valueList ++ fArgs ++ fconstants
               nBodyVals = length bodyVals
 
-              blockInstructions :: BasicBlock -> [I.Inst]
+              blockInstructions :: HasCallStack => BasicBlock -> [I.Inst]
               blockInstructions (BasicBlock insts) = map snd insts
               blockInstructions (NamedBlock _ insts) = map snd insts
 
@@ -399,7 +402,7 @@ instance ToNBitCode (Maybe Ident, Module) where
               swiftErrorMask = shift (1 :: Int) 7
 
               -- Relative Symbol lookup
-              lookupRelativeSymbolIndex :: (Integral a)
+              lookupRelativeSymbolIndex :: (HasCallStack, Integral a)
                                         => [V.Symbol] -- ^ values prior to entering the instruction block
                                         -> [V.Symbol] -- ^ instruction values
                                         -> Int       -- ^ current instruction count
@@ -409,11 +412,11 @@ instance ToNBitCode (Maybe Ident, Module) where
                 where vN = length vs
                       vals = vs ++ ivs
 
-              lookupRelativeSymbolIndex' :: (Integral a) => Int -> V.Symbol -> a
+              lookupRelativeSymbolIndex' :: (HasCallStack, Integral a) => Int -> V.Symbol -> a
               lookupRelativeSymbolIndex' = lookupRelativeSymbolIndex bodyVals instVals
 
               -- Build instructions.
-              mkInstRec :: Int -> I.Inst -> NBitCode
+              mkInstRec :: HasCallStack => Int -> I.Inst -> NBitCode
               mkInstRec n (I.BinOp _ op lhs rhs flags) = mkRec FC.INST_BINOP [ lookupRelativeSymbolIndex' n lhs
                                                                              , lookupRelativeSymbolIndex' n rhs
                                                                              , fromEnum' op
@@ -534,7 +537,7 @@ instance ToNBitCode (Maybe Ident, Module) where
                 
               mkInstRec n i = error $ "Instruction " ++ (show i) ++ " not yet supported."
               -- Fold helper to keep track of the instruction count.
-              mkInstRecFold :: (Int, [NBitCode]) -> I.Inst -> (Int, [NBitCode])
+              mkInstRecFold :: HasCallStack => (Int, [NBitCode]) -> I.Inst -> (Int, [NBitCode])
               mkInstRecFold (n, codes) inst = case instTy inst of
                 Just _ -> (n+1,mkInstRec n inst:codes)
                 Nothing -> (n, mkInstRec n inst:codes)
