@@ -84,8 +84,10 @@ test-suite spec
                      , tasty
                      , tasty-discover
                      , tasty-hspec
+                     , tasty-quickcheck
                      , process
                      , filepath
                      , data-bitcode
                      , data-bitcode-llvm
+                     , containers
   default-language:  Haskell2010
