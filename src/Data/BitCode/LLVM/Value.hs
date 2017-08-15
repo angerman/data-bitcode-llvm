@@ -62,6 +62,22 @@ data Const
   -- | InlineAsm -- TODO
   deriving (Show, Eq, Ord, Generic)
 
+data FunctionExtra
+  = FE
+  { feProto :: Bool                   -- ^ Non-zero if this entry represents a declaration rather than a definition
+  , fePrologueData :: Maybe Symbol    -- ^ If non-zero, the value index of the prologue data for this function, plus 1. 
+  , fePrefixData :: Maybe Symbol      -- ^ If non-zero, the value index of the prefix data for this function, plus 1.
+  }
+  deriving (Show, Generic)
+
+-- Function Extras are ignored
+-- for Ord and Eq
+instance Ord FunctionExtra where
+  x <= y = True
+
+instance Eq FunctionExtra where
+  x == y = True
+
 -- | Values the ValueList may contain.
 data Value
   -- | global variables
@@ -86,7 +102,6 @@ data Value
   | Function
     { fType :: Ty                      -- ^ The type index of the function type describing this function
     , fCallingConv :: CallingConv
-    , fIsProto :: Bool                 -- ^ Non-zero if this entry represents a declaration rather than a definition
     , fLinkage :: Linkage
     , fParamAttrs :: Word64            -- ^ If nonzero, the 1-based parameter attribute index into the table of @PARAMATTR_CODE_ENTRY@ entries.
     , fAlignment :: Word64
@@ -94,11 +109,10 @@ data Value
     , fVisibility :: Visibility
     , fGC :: Word64                    -- ^ If present and nonzero, the 1-based garbage collector index in the table of @MODULE_CODE_GCNAME@ entries.
     , fUnnamedAddr :: Bool             -- ^ If present and non-zero, indicates that the function has @unnamed_addr@.
-    , fPrologueData :: Maybe Symbol    -- ^ If non-zero, the value index of the prologue data for this function, plus 1.
     , fDLLStorageClass :: DLLStorageClass -- ^ An encoding of the DLL storage class of this function.
     , fComdat :: Word64                -- ^ An encoding of the COMDAT of this function
-    , fPrefixData :: Maybe Symbol      -- ^ If non-zero, the value index of the prefix data for this function, plus 1.
     , fPersonalityFn :: Word64         -- ^ If non-zero, the value index of the personality function for this function, plus 1.
+    , fExtra :: FunctionExtra          
     }
   -- | The @ALIAS@ record (code 9) marks the definition of an alias.
   | Alias
@@ -125,7 +139,16 @@ data Value
   -- will be replaced with their repsective global or function. Others will be
   -- replaced by external references.
   | Label Ty
-  deriving (Show, Ord, Generic)
+  deriving (Show, Eq, Ord, Generic)
+
+fIsProto :: Value -> Bool
+fIsProto = feProto . fExtra 
+
+fPrologueData :: Value -> Maybe Symbol
+fPrologueData = fePrologueData . fExtra
+
+fPrefixData :: Value -> Maybe Symbol
+fPrefixData = fePrefixData . fExtra
 
 class HasLinkage a where
   getLinkage :: a -> Linkage
@@ -147,53 +170,6 @@ instance HasLinkage Value where
   setLinkage l a@(Alias{})    = a { aLinkage = l }
   setLinkage _ other = error $ show other ++ " has no linkage!"
 
-instance Eq Value where
-  Global ty cst as i l pa s v tl ua ei sc c == Global ty' cst' as' i' l' pa' s' v' tl' ua' ei' sc' c'
-    =   ty == ty'
-    && cst == cst'
-    &&  as == as'
-    &&   i == i'
-    &&   l == l'
-    &&  pa == pa'
-    &&   s == s'
-    &&   v == v'
-    &&  tl == tl'
-    &&  ua == ua'
-    &&  ei == ei'
-    &&  sc == sc'
-    &&   c == c'
-  -- special case for Function; ignoring proto, prologue and prefix data.
-  Function ty cc _ l pa a s v gc ua _ sc c _ pf == Function ty' cc' _ l' pa' a' s' v' gc' ua' _ sc' c' _ pf'
-    =  ty == ty'
-    && cc == cc'
-    &&  l == l'
-    && pa == pa'
-    &&  a == a'
-    &&  s == s'
-    &&  v == v'
-    && gc == gc'
-    && ua == ua'
-    && sc == sc'
-    &&  c == c'
-    && pf == pf'
-  Alias ty as val l v tl ua sc == Alias ty' as' val' l' v' tl' ua' sc'
-    =   ty == ty'
-    &&  as == as'
-    && val == val'
-    &&   l == l'
-    &&   v == v'
-    &&  tl == tl'
-    &&  ua == ua'
-    &&  sc == sc'
-  Constant ty c == Constant ty' c' = ty == ty' && c == c'
-  Arg ty ref    == Arg ty' ref'    = ty == ty' && ref == ref'
-  Value ty      == Value ty'       = ty == ty'
-  TRef ty ref   == TRef ty' ref'   = ty == ty' && ref == ref'
-  FwdRef n      == FwdRef n'       = n == n'
-  -- This is wonky! Makes sense for named symbols only, where
-  -- We have Named <name> (Label <ty>).
-  Label t       == Label t'        = t == t'
-  _             == _               = False
 
 instance HasType Value where
   ty (Global{..}) = gPointerType
@@ -241,6 +217,7 @@ entryName :: ValueSymbolEntry -> String
 entryName (Entry s) = s
 entryName (FnEntry _ s) = s
 
+instance Binary FunctionExtra
 instance Binary FpValue
 instance Binary Const
 instance Binary Value

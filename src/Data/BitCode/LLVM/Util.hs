@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fprof-auto #-} 
 module Data.BitCode.LLVM.Util where
 
 import Text.PrettyPrint

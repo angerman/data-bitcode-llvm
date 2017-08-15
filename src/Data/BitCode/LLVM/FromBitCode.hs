@@ -359,10 +359,10 @@ parseFunctionDecl'
   ty <- askType tyId
   let prologueData = if prologueDataId /= 0 then Just (Unnamed (FwdRef (prologueDataId -1))) else Nothing
       prefixData = if prefixDataId /= 0 then Just (Unnamed (FwdRef (prefixDataId -1))) else Nothing
-  tellValue $ V.Function (Ptr 0 ty) (toEnum' cconv) (isProto /= 0) (toEnum' linkage)
+  tellValue $ V.Function (Ptr 0 ty) (toEnum' cconv) (toEnum' linkage)
                          paramAttrId alignment section (toEnum' visibility) gc
-                         (unnamedAddr /= 0) prologueData (toEnum' storageClass)
-                         comdat prefixData personality
+                         (unnamedAddr /= 0) (toEnum' storageClass)
+                         comdat personality (FE (isProto /= 0) prologueData prefixData)
 
 parseFunctionDecl' vs = fail $ "Failed to parse functiond decl from " ++ show (length vs) ++ " values " ++ show vs
 
@@ -463,10 +463,10 @@ parseModule bs = do
 
   trace "Parsing Decls"
 
-  let functionDefs = [f | f@(Named _ (V.Function {..})) <- values, not fIsProto] ++
-                     [f | f@(Unnamed (V.Function {..})) <- values, not fIsProto]
-      functionDecl = [f | f@(Named _ (V.Function {..})) <- values, fIsProto ] ++
-                     [f | f@(Unnamed (V.Function {..})) <- values, fIsProto ]
+  let functionDefs = [f | f@(Named _ (V.Function {..})) <- values, not (feProto fExtra)] ++
+                     [f | f@(Unnamed (V.Function {..})) <- values, not (feProto fExtra)]
+      functionDecl = [f | f@(Named _ (V.Function {..})) <- values, feProto fExtra ] ++
+                     [f | f@(Unnamed (V.Function {..})) <- values, feProto fExtra ]
   (unless (length functionDefs == length functionBlocks)) $ fail $ "#functionDecls (" ++ show (length functionDefs) ++ ") does not match #functionBodies (" ++ show (length functionBlocks) ++ ")"
 
   trace "Parsing Functions"

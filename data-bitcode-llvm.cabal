@@ -25,6 +25,7 @@ library
       src
   build-depends:
       base >= 4.7 && < 5
+    , containers >= 0.5.7
     , pretty >= 1.1
     , data-bitcode >= 0.1
     , binary >= 0.8

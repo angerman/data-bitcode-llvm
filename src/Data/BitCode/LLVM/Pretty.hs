@@ -5,6 +5,8 @@
 module Data.BitCode.LLVM.Pretty where
 
 import Data.Word (Word64)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Char (toLower)
 import Text.PrettyPrint
@@ -38,9 +40,12 @@ instance (Pretty a) => Pretty (Maybe a) where
   pretty (Just x) = pretty x
   pretty Nothing  = empty
 
+instance (Pretty a, Pretty b) => Pretty (Map a b) where
+  pretty = pretty . Map.toList
+
 prefix :: Value -> Doc
 prefix (Global{}) = char '@'
-prefix (V.Function{..}) | fIsProto  = text "decl "
+prefix (V.Function{..}) | feProto fExtra  = text "decl "
                         | otherwise = text "def "
 prefix (Alias{..}) = char '~'
 prefix (Constant{}) = text "const "
@@ -63,7 +68,7 @@ suffix (V.Label t) = text "::" <+> pretty t
 
 -- * Values
 instance Pretty Value where
-  pretty v@(V.Function{..}) | Just prefixData <- fPrefixData = prefix v <> suffix v $+$ text "Prefix:" <+> pretty prefixData
+  pretty v@(V.Function{..}) | Just prefixData <- fePrefixData fExtra = prefix v <> suffix v $+$ text "Prefix:" <+> pretty prefixData
   pretty v = prefix v <> suffix v
 
 -- * Symbols

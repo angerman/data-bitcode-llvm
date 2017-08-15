@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fprof-auto #-} 
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
 module Data.BitCode.LLVM.ToBitCode where
@@ -7,8 +8,8 @@ import Data.BitCode.LLVM
 import Data.BitCode.LLVM.Util
 import Data.BitCode.LLVM.Function
 import Data.BitCode.LLVM.Classes.HasType
-import qualified Data.BitCode.LLVM.Value as V (Const(..), Value(..), Named(..), Symbol, symbolValue)
-import qualified Data.BitCode.LLVM.Type  as T (Ty(..), ftypes)
+import qualified Data.BitCode.LLVM.Value as V (Const(..), Value(..), Named(..), Symbol, symbolValue, FunctionExtra(..))
+import qualified Data.BitCode.LLVM.Type  as T (Ty(..), ftypes, typeCompare)
 import qualified Data.BitCode.LLVM.Instruction as I (Inst(..), TailCallKind(..))
 import Data.BitCode.LLVM.Flags
 
@@ -20,9 +21,11 @@ import qualified Data.BitCode.LLVM.Codes.Type           as TC
 import qualified Data.BitCode.LLVM.Codes.Constants      as CC
 import qualified Data.BitCode.LLVM.Codes.Function       as FC
 import qualified Data.BitCode.LLVM.Codes.ValueSymtab    as VST
+import qualified Data.Map.Strict                        as Map
+import Data.Map.Strict (Map)
 
 import Data.BitCode.LLVM.Classes.ToSymbols
-import Data.List (elemIndex, sort, sortOn, groupBy, nub)
+import Data.List (elemIndex, sort, sortBy, groupBy, nub)
 import Data.Function (on)
 
 import Data.Maybe (fromMaybe, catMaybes)
@@ -107,10 +110,17 @@ lookupValueIndex vs v = case elemIndex v vs of
   Just i  -> fromIntegral i
   Nothing -> error . show $ text "Unable to find value" <+> pretty v <+> text "in" <+> pretty vs
 
-lookupSymbolIndex :: (HasCallStack, Integral b) => [V.Symbol] -> V.Symbol -> b
-lookupSymbolIndex ss s = case elemIndex s ss of
+lookupSymbolIndex :: (HasCallStack, Integral b) => Map V.Symbol Int -> V.Symbol -> b
+lookupSymbolIndex ss s = case Map.lookup s ss of
   Just i  -> fromIntegral i
   Nothing -> error . show $ text "Unable to find symbol" <+> pretty s <+> text "in" <+> pretty ss
+
+--------------------------------------------------------------------------
+-- PP Utiltiys
+prettyIndexed :: (Pretty a) => [a] -> Doc
+prettyIndexed = pretty . zip ([0..] :: [Int])
+traceShowWith :: Show a => (b -> a) -> b -> b
+traceShowWith f x = traceShow (f x) x
 
 -- We *can not* have ToNBitCode Module, as we
 -- need to know the position in the bitcode stream.
@@ -145,12 +155,6 @@ instance ToNBitCode (Maybe Ident, Module) where
     --                         , {- Block: SymTab 14 -}
     --                         ]
     where
-      --------------------------------------------------------------------------
-      -- PP Utiltiys
-      prettyIndexed :: (Pretty a) => [a] -> Doc
-      prettyIndexed = pretty . zip ([0..] :: [Int])
-      traceShowWith :: Show a => (b -> a) -> b -> b
-      traceShowWith f x = traceShow (f x) x
       --------------------------------------------------------------------------
       -- Compute the offsets
       identBlock   = toBitCode i
@@ -187,10 +191,10 @@ instance ToNBitCode (Maybe Ident, Module) where
       -- the constants table.
       --------------------------------------------------------------------------
       isDeclaration x
-        | f@(V.Function{}) <- V.symbolValue x = V.fIsProto f
+        | f@(V.Function{}) <- V.symbolValue x = V.feProto (V.fExtra f)
         | otherwise                           = False
       isFunction x
-        | f@(V.Function{}) <- V.symbolValue x = not (V.fIsProto f)
+        | f@(V.Function{}) <- V.symbolValue x = not (V.feProto (V.fExtra f))
         | otherwise                           = False
       isGlobal x
         | (V.Global{})     <- V.symbolValue x = True
@@ -220,7 +224,8 @@ instance ToNBitCode (Maybe Ident, Module) where
       --
       -- TODO: FLAGS: if -dump-valuelist:
       --   traceShowWith prettyIndexed $!
-      valueList = globalSymbols ++ functionSymbols ++ constantSymbols
+      valueList :: Map V.Symbol Int
+      valueList = Map.fromList $ zip (globalSymbols ++ functionSymbols ++ constantSymbols) [0..]
 
       -- * T Y P E S
       -- all top level types, and all the types to construct them. (e.g. i8** -> i8, i8*, and i8**).
@@ -236,7 +241,7 @@ instance ToNBitCode (Maybe Ident, Module) where
 
       -- | Turn a set of Constant Values unto BitCode Records.
       mkConstBlock :: HasCallStack
-                   => [V.Symbol] -- ^ values that can be referenced.
+                   => Map V.Symbol Int -- ^ values that can be referenced.
                    -> [V.Symbol] -- ^ the constants to turn into BitCode
                    -> [NBitCode]
       mkConstBlock values consts | length consts > 0 = [ mkBlock CONSTANTS .
@@ -252,7 +257,7 @@ instance ToNBitCode (Maybe Ident, Module) where
             | (V.Constant t c) <- V.symbolValue s
             = (mkRec CC.CST_CODE_SETTYPE (lookupTypeIndex typeList t :: Int)):mkConstRec values c:map (mkConstRec values . V.cConst . V.symbolValue) cs
             | otherwise = error $ "Invalid constant " ++ show s
-      mkConstRec :: HasCallStack => [V.Symbol] -> V.Const -> NBitCode
+      mkConstRec :: HasCallStack => Map V.Symbol Int -> V.Const -> NBitCode
       mkConstRec constantSymbols V.Null               = mkEmptyRec CC.CST_CODE_NULL
       mkConstRec constantSymbols V.Undef              = mkEmptyRec CC.CST_CODE_UNDEF
       mkConstRec constantSymbols (V.Int n)            = mkRec CC.CST_CODE_INTEGER (fromSigned n)
@@ -319,7 +324,7 @@ instance ToNBitCode (Maybe Ident, Module) where
       mkFunctionRec :: HasCallStack => V.Value -> NBitCode
       mkFunctionRec (V.Function{..}) = mkRec MC.FUNCTION [ lookupTypeIndex typeList t -- NOTE: Similar to Globals we store the pointee type.
                                                          , fromEnum' fCallingConv
-                                                         , bool fIsProto
+                                                         , bool (V.feProto fExtra)
                                                          , fromEnum' fLinkage
                                                          , fParamAttrs
                                                          , fAlignment
@@ -327,10 +332,10 @@ instance ToNBitCode (Maybe Ident, Module) where
                                                          , fromEnum' fVisibility
                                                          , fGC
                                                          , bool fUnnamedAddr
-                                                         , fromMaybe 0 ((+1) . lookupSymbolIndex valueList <$> fPrologueData)
+                                                         , fromMaybe 0 ((+1) . lookupSymbolIndex valueList <$> (V.fePrologueData fExtra))
                                                          , fromEnum' fDLLStorageClass
                                                          , fComdat
-                                                         , fromMaybe 0 ((+1) . lookupSymbolIndex valueList <$> fPrefixData)
+                                                         , fromMaybe 0 ((+1) . lookupSymbolIndex valueList <$> (V.fePrefixData fExtra))
                                                          , fPersonalityFn
                                                          ]
                                        where (T.Ptr _ t) = fType
@@ -343,7 +348,7 @@ instance ToNBitCode (Maybe Ident, Module) where
       mkSymTabBlock syms = mkBlock VALUE_SYMTAB (catMaybes (map mkSymTabRec namedIdxdSyms))
         where namedIdxdSyms = [(idx, name, value) | (idx, (V.Named name value)) <- zip [0..] syms]
               mkSymTabRec :: (Int, String, V.Value) -> Maybe NBitCode
-              mkSymTabRec (n, nm, (V.Function{..})) | fIsProto  = Just (mkRec VST.VST_CODE_ENTRY (n:map fromEnum nm))
+              mkSymTabRec (n, nm, (V.Function{..})) | V.feProto fExtra  = Just (mkRec VST.VST_CODE_ENTRY (n:map fromEnum nm))
                                                     -- LLVM 3.8 comes with FNENTRY, which has offset at the
                                                     --          second position. This however requires computing the
                                                     --          offset corret.
@@ -374,17 +379,23 @@ instance ToNBitCode (Maybe Ident, Module) where
               fArgs = map V.Unnamed $ zipWith V.Arg fArgTys [0..]
               -- function local constant
               fconstants :: [V.Symbol]
-              fconstants = sortOn (V.cTy . V.symbolValue) (filter isConst consts)
+              fconstants =   sortBy (T.typeCompare `on` (V.cTy . V.symbolValue))
+                             -- ignore any constants that are available globally already
+                           . filter (\x -> not $ x `elem` constantSymbols)
+                             -- only constants
+                           . filter isConst
+                           $ consts
               isConst :: V.Symbol -> Bool
               isConst c | (V.Constant{}) <- V.symbolValue c = True
                         | otherwise                         = False
               -- the values the body can reference.
-              bodyVals :: [V.Symbol]
+
               -- globals, functions, constants, (because we order them that way)
               -- plus fargs and fconstants per function body ontop of which are
               -- the references generated by the instructions will be placed.
-              bodyVals = valueList ++ fArgs ++ fconstants
-              nBodyVals = length bodyVals
+              bodyVals :: Map V.Symbol Int
+              bodyVals = Map.unionWith (error . show) valueList (Map.fromList $ zip (fArgs ++ fconstants) [(Map.size valueList)..])
+              nBodyVals = Map.size bodyVals
 
               blockInstructions :: HasCallStack => BasicBlock -> [I.Inst]
               blockInstructions (BasicBlock insts) = map snd insts
@@ -394,7 +405,8 @@ instance ToNBitCode (Maybe Ident, Module) where
               instVals = map V.Unnamed $ zipWith V.TRef [t | Just t <- map instTy (concatMap blockInstructions bbs)] [0..]
 
               -- all values. This will be used to lookup indices for values in.
-              allVals = bodyVals ++ instVals
+              allVals :: Map V.Symbol Int
+              allVals = Map.unionWith (error . show) bodyVals (Map.fromList $ zip instVals [(Map.size bodyVals)..])
 
               -- These are in FromBitCode as well. TODO: Refactor move BitMasks into a common file.
               inAllocMask = shift (1 :: Int) 5
@@ -403,14 +415,14 @@ instance ToNBitCode (Maybe Ident, Module) where
 
               -- Relative Symbol lookup
               lookupRelativeSymbolIndex :: (HasCallStack, Integral a)
-                                        => [V.Symbol] -- ^ values prior to entering the instruction block
+                                        => Map V.Symbol Int -- ^ values prior to entering the instruction block
                                         -> [V.Symbol] -- ^ instruction values
                                         -> Int       -- ^ current instruction count
                                         -> V.Symbol   -- ^ the symbol to lookup
                                         -> a
               lookupRelativeSymbolIndex vs ivs iN s = fromIntegral $ vN + iN - lookupSymbolIndex vals s
-                where vN = length vs
-                      vals = vs ++ ivs
+                where vN = Map.size vs
+                      vals = Map.unionWith (error . show) vs (Map.fromList $ zip ivs [vN..])
 
               lookupRelativeSymbolIndex' :: (HasCallStack, Integral a) => Int -> V.Symbol -> a
               lookupRelativeSymbolIndex' = lookupRelativeSymbolIndex bodyVals instVals

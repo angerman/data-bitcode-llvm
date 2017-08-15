@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fprof-auto #-} 
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -8,6 +9,7 @@ import Data.BitCode.LLVM.Value       as V
 import Data.BitCode.LLVM.Function    as F
 import Data.BitCode.LLVM.Instruction as I
 import Data.Maybe (catMaybes)
+import Data.Foldable (foldl')
 
 -- I guess this should just be Foldable or Traversable.
 
@@ -18,17 +20,17 @@ class ToSymbols a where
 
 instance (ToSymbols a) => ToSymbols [a] where
   symbols = concatMap symbols
-  fsymbols s_ = foldl fsymbols s_
+  fsymbols s_ = foldl' fsymbols s_
 
 instance ToSymbols Value where
   symbols V.Global{..}   | Just s <- gInit = symbols s
-  symbols V.Function{..} = concatMap symbols $ catMaybes [fPrologueData, fPrefixData]
+  symbols V.Function{..} = concatMap symbols $ catMaybes [fePrologueData fExtra, fePrefixData fExtra]
   symbols V.Alias{..}    = symbols aVal
   symbols V.Constant{..} = symbols cConst
   symbols _            = []
 
   fsymbols s_ V.Global{..}  | Just s <- gInit = fsymbols s_ s
-  fsymbols s_ V.Function{..} = foldl fsymbols s_ (catMaybes [fPrologueData, fPrefixData])
+  fsymbols s_ V.Function{..} = foldl' fsymbols s_ (catMaybes [fePrologueData fExtra, fePrefixData fExtra])
   fsymbols s_ V.Alias{..}    = fsymbols s_ aVal
   fsymbols s_ V.Constant{..} = fsymbols s_ cConst
   fsymbols s_ _            = s_
@@ -41,12 +43,12 @@ instance ToSymbols Const where
   symbols (V.Cast _ _ s)       = symbols s
   symbols (V.InboundsGep _ ss) = concatMap symbols ss
   symbols _                  = []
-  fsymbols s_ (V.Array ss)     = foldl fsymbols s_ ss
-  fsymbols s_ (V.Vector ss)    = foldl fsymbols s_ ss
-  fsymbols s_ (V.Struct ss)    = foldl fsymbols s_ ss
-  fsymbols s_ (V.BinOp _ s s') = foldl fsymbols s_ [s, s']
-  fsymbols s_ (V.Cast _ _ s)   = foldl fsymbols s_ [s]
-  fsymbols s_ (V.InboundsGep _ ss) = foldl fsymbols s_ ss
+  fsymbols s_ (V.Array ss)     = foldl' fsymbols s_ ss
+  fsymbols s_ (V.Vector ss)    = foldl' fsymbols s_ ss
+  fsymbols s_ (V.Struct ss)    = foldl' fsymbols s_ ss
+  fsymbols s_ (V.BinOp _ s s') = foldl' fsymbols s_ [s, s']
+  fsymbols s_ (V.Cast _ _ s)   = foldl' fsymbols s_ [s]
+  fsymbols s_ (V.InboundsGep _ ss) = foldl' fsymbols s_ ss
   fsymbols s_ _              = s_
 
 
@@ -58,12 +60,12 @@ instance ToSymbols BlockInst where
 
 instance ToSymbols BasicBlock where
   symbols (BasicBlock insts) = concatMap symbols insts
-  fsymbols s_ (BasicBlock insts) = foldl fsymbols s_ insts
+  fsymbols s_ (BasicBlock insts) = foldl' fsymbols s_ insts
 
 instance ToSymbols Function where
   -- TODO: do we want to apply symbols on the result instead of only to const?
   symbols (F.Function sig const body) = symbols sig ++ concatMap symbols const ++ concatMap symbols body
-  fsymbols s_ (F.Function sig const body) = foldl fsymbols (foldl fsymbols s_ (sig:const)) body
+  fsymbols s_ (F.Function sig const body) = foldl' fsymbols (foldl' fsymbols s_ (sig:const)) body
 
 instance ToSymbols Symbol where
   symbols s = s:symbols (symbolValue s)
@@ -94,19 +96,19 @@ instance ToSymbols Inst where
   fsymbols s_ (I.Alloca _ s _)      = fsymbols s_ s
   fsymbols s_ (I.Cast _ _ s)        = fsymbols s_ s
   fsymbols s_ (I.Load _ s _)        = fsymbols s_ s
-  fsymbols s_ (I.Store s s' _)      = foldl fsymbols s_ [s,s']
-  fsymbols s_ (I.Call _ _ _ s _ ss) = foldl fsymbols s_ (s:ss)
-  fsymbols s_ (I.Cmp2 _ s s' _)     = foldl fsymbols s_ [s,s']
-  fsymbols s_ (I.Gep _ _ s ss)      = foldl fsymbols s_ (s:ss)
+  fsymbols s_ (I.Store s s' _)      = foldl' fsymbols s_ [s,s']
+  fsymbols s_ (I.Call _ _ _ s _ ss) = foldl' fsymbols s_ (s:ss)
+  fsymbols s_ (I.Cmp2 _ s s' _)     = foldl' fsymbols s_ [s,s']
+  fsymbols s_ (I.Gep _ _ s ss)      = foldl' fsymbols s_ (s:ss)
   fsymbols s_ (I.ExtractValue s _)  = fsymbols s_ s
   fsymbols s_ (I.Ret (Just s))      = fsymbols s_ s
   fsymbols s_ (I.Ret Nothing)       = s_
   fsymbols s_ (I.UBr _)             = s_
   fsymbols s_ (I.Br s _ _)          = fsymbols s_ s
-  fsymbols s_ (I.BinOp _ _ l r _)   = foldl fsymbols s_ [l, r]
-  fsymbols s_ (I.Switch s _ sbs)    = foldl fsymbols s_ (s:map fst sbs)
-  fsymbols s_ (I.CmpXchg p c n _ _ _) = foldl fsymbols s_ [p, c, n]
+  fsymbols s_ (I.BinOp _ _ l r _)   = foldl' fsymbols s_ [l, r]
+  fsymbols s_ (I.Switch s _ sbs)    = foldl' fsymbols s_ (s:map fst sbs)
+  fsymbols s_ (I.CmpXchg p c n _ _ _) = foldl' fsymbols s_ [p, c, n]
   fsymbols s_ (I.Fence _ _)         = s_
-  fsymbols s_ (I.AtomicRMW s s' _ _ _) = foldl fsymbols s_ [s, s']
-  fsymbols s_ (I.AtomicStore s s' _ _ _) = foldl fsymbols s_ [s, s']
+  fsymbols s_ (I.AtomicRMW s s' _ _ _) = foldl' fsymbols s_ [s, s']
+  fsymbols s_ (I.AtomicStore s s' _ _ _) = foldl' fsymbols s_ [s, s']
   fsymbols s_ (I.AtomicLoad _ s _ _ _) = fsymbols s_ s

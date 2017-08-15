@@ -25,7 +25,7 @@ data Ty
   | StructNamed { teName :: String, teNamedIsPacked :: Bool, teNamedEltTy :: [Ty] }
   | Function { teVarArg :: Bool, teRetTy :: Ty, teParamTy :: [Ty] }
   | Token
-  deriving (Show, Eq, Generic)
+  deriving (Show, Ord, Eq, Generic)
 
 instance Binary Ty
 
@@ -66,12 +66,15 @@ isPtr :: Ty -> Bool
 isPtr (Ptr{}) = True
 isPtr _       = False
 
-instance Ord Ty where
-  x <= y | isPrimitive x && isPrimitive y = orderIdx x <= orderIdx y
-         -- primitives first
-         | isPrimitive x && isComplex y = True
-         | isComplex x && isComplex y = x `elem` (subTypes y) || and ((map (<=) (subTypes x)) <*> subTypes y)
-         | otherwise = False
+typeCompare :: Ty -> Ty -> Ordering
+typeCompare x y | x == y = EQ
+                | isPrimitive x && isPrimitive y = if orderIdx x <= orderIdx y then LT else GT
+                -- primitives first
+                | isPrimitive x && isComplex y = LT
+                | isComplex x && isComplex y && x `elem` (subTypes y) = LT
+                | isComplex x && isComplex y && and ((map isLtEq (subTypes x)) <*> subTypes y) = LT
+                | otherwise = GT
+  where isLtEq x y = not (GT == typeCompare x y)
 
 subTypes :: Ty -> [Ty]
 subTypes (Ptr _ t) = t:subTypes t

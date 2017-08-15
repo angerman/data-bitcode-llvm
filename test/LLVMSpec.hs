@@ -7,6 +7,7 @@ import Data.BitCode.Reader as BC
 import Data.BitCode.LLVM.FromBitCode as BC
 import Data.BitCode.LLVM as LLVM
 import Data.BitCode.LLVM.Reader.Monad as LLVM
+import Data.BitCode.LLVM.Pretty
 import qualified Data.BitCode.LLVM.Instruction as I
 import qualified Data.BitCode.LLVM.Function    as F
 import qualified Data.BitCode.Writer.Monad     as BCM (writeFile)
@@ -59,6 +60,11 @@ readBitcode :: HasCallStack => FilePath -> IO (Either String (Maybe Ident, Modul
 readBitcode f = do
   res <- BC.readFile f
   return $ (evalLLVMReader . parseTopLevel . catMaybes . map normalize) =<< res
+
+dumpBitcode :: HasCallStack => FilePath -> IO ()
+dumpBitcode f = do
+  (Right (_, mod)) <- readBitcode f
+  putStrLn . show . pretty $ mod
 
 moduleInstructions :: HasCallStack => Module -> [I.Inst]
 moduleInstructions m =
