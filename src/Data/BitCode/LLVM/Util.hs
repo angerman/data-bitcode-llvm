@@ -41,6 +41,12 @@ isFunction _ = False
 isFunctionPtr :: HasCallStack => Ty.Ty -> Bool
 isFunctionPtr t = (isPtr t) && (isFunction (lower t))
 
+-- | Checks if a type is of tyep @i1@.  LLVM requires
+-- types to be i1 (bool) in binary conditonal position.
+isBoolTy :: HasCallStack => Val.Symbol -> Bool
+isBoolTy t | ty t == Ty.Int 1 = True
+           | otherwise        = False
+
 lift :: HasCallStack => Ty.Ty -> Ty.Ty
 lift t = Ty.Ptr 0 t
 
