@@ -133,7 +133,9 @@ lookupValueIndex vs v = case elemIndex v vs of
   Nothing -> error . show $ text "Unable to find value" <+> pretty v <+> text "in" <+> pretty vs
 
 lookupSymbolIndex :: (HasCallStack, Integral b) => Map V.Symbol Int -> V.Symbol -> b
-lookupSymbolIndex ss s = case Map.lookup s ss of
+lookupSymbolIndex ss s
+  | (V.Label{}) <- V.symbolValue s = error . show $ text "Tried to lookup label" <+> pretty s <+> text ". Can not lookup labels!"
+  | otherwise                      = case Map.lookup s ss of
   Just i  -> fromIntegral i
   Nothing -> error . show $ text "Unable to find symbol" <+> pretty s <+> text "in" <+> pretty ss
 
