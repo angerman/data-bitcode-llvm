@@ -32,6 +32,8 @@ import Data.Function (on)
 import Data.Maybe (fromMaybe, catMaybes)
 import Data.Word  (Word64)
 
+import Data.Foldable (foldl')
+
 import Data.Bits (FiniteBits, (.|.), shift, setBit)
 
 import Debug.Trace
@@ -398,7 +400,7 @@ instance ToNBitCode (Maybe Ident, Module) where
           -- the record creation. We also prepend records and hence
           -- have to reverse them in the end.
           -- TODO: Use better mappendable DataStructure.
-          (reverse . snd $ foldl mkInstRecFold (0,[]) (concatMap blockInstructions bbs))
+          (reverse . snd $ foldl' mkInstRecFold (0,[]) (concatMap blockInstructions bbs))
         where -- function arguments
               fArgTys = funParamTys (V.fType (V.symbolValue sig))
               fArgs = map V.Unnamed $ zipWith V.Arg fArgTys [0..]
@@ -457,7 +459,7 @@ instance ToNBitCode (Maybe Ident, Module) where
               mkInstRec n (I.BinOp _ op lhs rhs flags) = mkRec FC.INST_BINOP [ lookupRelativeSymbolIndex' n lhs
                                                                              , lookupRelativeSymbolIndex' n rhs
                                                                              , fromEnum' op
-                                                                             , foldl setBit (0 :: Int) (map flagValue flags)
+                                                                             , foldl' setBit (0 :: Int) (map flagValue flags)
                                                                              ]
               -- TODO: There should be valueTypePair :: Int -> Symbol -> [_]
               --       which encodes a Symbol that has an index < n just
