@@ -13,7 +13,7 @@ import Data.BitCode (NBitCode(..), normalize, records, blocks, lookupBlock, look
 import qualified Data.BitCode as BC
 import Data.BitCode.LLVM
 import Data.BitCode.LLVM.Util
-import Data.BitCode.LLVM.Classes.HasType
+import Data.BitCode.LLVM.Classes.HasType as T
 import Data.BitCode.LLVM.Reader.Monad
 import Data.BitCode.LLVM.ParamAttr
 import Data.BitCode.LLVM.IDs.Blocks as B
@@ -37,6 +37,8 @@ import Data.BitCode.LLVM.Metadata
 import Data.BitCode.LLVM.Codes.Type as TC
 import Data.BitCode.LLVM.Codes.Module as M
 import Data.Maybe (catMaybes, fromMaybe)
+
+import qualified Data.Set as Set
 
 import qualified Data.BitCode.LLVM.Linkage as Linkage
 import qualified Data.BitCode.LLVM.Visibility as Visibility
@@ -473,7 +475,9 @@ parseModule bs = do
 
   fns <- mapM parseFunction (zip functionDefs functionBlocks)
 
-  return $ Module version triple layout values functionDecl fns
+  typeSet <- Set.fromList <$> askTypeList
+
+  return $ Module version triple layout values functionDecl fns typeSet
   where
     functionBlocks :: [[NBitCode]]
     functionBlocks = [bs' | (B.FUNCTION, bs') <- blocks bs ]
@@ -619,6 +623,15 @@ getRelativeVal refs n = do
     then fail $ "index " ++ (show idx) ++ " out of range [0, " ++ show (length lst) ++ ") of avaliable relative values."
     else pure (lst !! idx) 
 
+getRelativeValWithType :: (HasCallStack, Integral a) => Ty -> [Symbol] -> a -> LLVMReader Symbol
+getRelativeValWithType ty refs n = do
+  val <- getRelativeVal refs n
+  if (T.ty val) == ty
+    then return val
+    else do valueList <- askValueList
+            let lst = reverse (valueList ++ refs)
+                idx = fromIntegral n - 1
+            fail $ show val ++ " (" ++ show idx ++ ") doesn't have type " ++ show ty ++ "\nvalues\n" ++ unlines (map show lst)
 
 -- TODO: filter out the `FUNC_CODE_DECLAREBLOCKS` in
 --       the foldHelper. We can then simplify the
@@ -697,11 +710,11 @@ parseInst rs = \case
   (INST_SWITCH, (opTy:cond:defaultBlock:cases)) -> do
     ty <- askType opTy
     cond' <- getRelativeVal rs cond
-    Just . Switch cond' defaultBlock <$> parseCase cases
+    Just . Switch cond' defaultBlock <$> parseCase ty cases
     where
-      parseCase :: [BC.Val] -> LLVMReader [(Symbol, BasicBlockId)]
-      parseCase [] = pure []
-      parseCase (valId:blockId:cases) = (:) <$> ((,blockId) <$> getRelativeVal rs valId) <*> parseCase cases
+      parseCase :: Ty -> [BC.Val] -> LLVMReader [(Symbol, BasicBlockId)]
+      parseCase ty [] = pure []
+      parseCase ty (valId:blockId:cases) = (:) <$> ((,blockId) <$> getRelativeValWithType ty rs valId) <*> parseCase ty cases
   -- 13
   -- (INST_INVOKE, vals)
   -- 14 - Unused

@@ -23,6 +23,7 @@ import qualified Data.BitCode.LLVM.Codes.Function       as FC
 import qualified Data.BitCode.LLVM.Codes.ValueSymtab    as VST
 import qualified Data.Map.Strict                        as Map
 import Data.Map.Strict (Map)
+import qualified Data.Set as Set
 
 import Data.BitCode.LLVM.Classes.ToSymbols
 import Data.List (elemIndex, sort, sortBy, groupBy, nub)
@@ -42,7 +43,7 @@ import Data.BitCode (denormalize)
 import Data.BitCode.Writer (emitTopLevel)
 import Data.BitCode.Writer.Monad (evalBitCodeWriter, ask)
 
-import Data.BitCode.LLVM.Pretty
+import Data.BitCode.LLVM.Pretty hiding (prettyIndexed)
 import Data.BitCode.LLVM.Util
 import Text.PrettyPrint ((<+>), text, (<>), int, vcat, Doc, ($+$), empty)
 import Control.Applicative ((<|>))
@@ -68,28 +69,47 @@ instance (ToNBitCode a) => ToNBitCode [a] where
 
 instance {-# OVERLAPPING #-} ToNBitCode [T.Ty] where
   toBitCode tys
-    = pure $ mkBlock TYPE_NEW (numEntryRec:concatMap mkTypeRec tys)
-    where numEntryRec :: NBitCode
+    = pure $ mkBlock TYPE_NEW (numEntryRec:concatMap mkTypeRec (zip [0..]  tys))
+    where -- A "safe" type lookup, that ensure we do not forward reference, which
+          -- is only permissable for named structs.
+          typeList = vcat (map p (zip [(0::Int)..] tys))
+            where p (i, t) = pretty i <+> text ": " <+> pretty t <+> text (show t) 
+          lookupTypeIndex' :: (HasCallStack, Integral b) => Int -> T.Ty -> Maybe b
+          lookupTypeIndex' n t = let t' = lookupTypeIndex tys t
+                                 in if (fromIntegral t') < n then Just t' else Nothing
+          numEntryRec :: NBitCode
           numEntryRec = mkRec TC.NUMENTRY (length tys)
-          mkTypeRec :: T.Ty -> [NBitCode]
-          mkTypeRec T.Void                   = [ mkEmptyRec TC.VOID ]
-          mkTypeRec T.Float                  = [ mkEmptyRec TC.FLOAT ]
-          mkTypeRec T.Double                 = [ mkEmptyRec TC.DOUBLE ]
-          mkTypeRec T.Label                  = [ mkEmptyRec TC.LABEL ]
-          mkTypeRec (T.Opaque name)          = [ mkRec TC.STRUCT_NAME name, mkEmptyRec TC.OPAQUE ]
-          mkTypeRec (T.Int w)                = [ mkRec TC.INTEGER [w] ]
-          mkTypeRec (T.Ptr s t)              = [ mkRec TC.POINTER [lookupTypeIndex tys t, s] ]
-          mkTypeRec T.Half                   = [ mkEmptyRec TC.HALF ]
-          mkTypeRec (T.Array n t)            = [ mkRec TC.ARRAY [n, lookupTypeIndex tys t] ]
-          mkTypeRec (T.Vector n t)           = [ mkRec TC.VECTOR [n, lookupTypeIndex tys t] ]
-          mkTypeRec T.X86Fp80                = [ mkEmptyRec TC.X86_FP80 ]
-          mkTypeRec T.Fp128                  = [ mkEmptyRec TC.FP128 ]
-          mkTypeRec T.Metadata               = [ mkEmptyRec TC.METADATA ]
-          mkTypeRec T.X86Mmx                 = [ mkEmptyRec TC.X86_MMX ]
-          mkTypeRec (T.StructAnon p ts)      = [ mkRec TC.STRUCT_ANON ((if p then 1 else 0  :: Int):map (lookupTypeIndex tys) ts) ]
-          mkTypeRec (T.StructNamed name p ts)= [ mkRec TC.STRUCT_NAME name, mkRec TC.STRUCT_NAMED ((if p then 1 else 0 :: Int):map (lookupTypeIndex tys) ts) ]
-          mkTypeRec (T.Function vargs t ts)  = [ mkRec TC.FUNCTION ((if vargs then 1 else 0::Int):map (lookupTypeIndex tys) (t:ts)) ]
-          mkTypeRec T.Token                  = [ mkEmptyRec TC.TOKEN ]
+          mkTypeRec :: (Int, T.Ty) -> [NBitCode]
+          mkTypeRec (i, T.Void)                   = [ mkEmptyRec TC.VOID ]
+          mkTypeRec (i, T.Float)                  = [ mkEmptyRec TC.FLOAT ]
+          mkTypeRec (i, T.Double)                 = [ mkEmptyRec TC.DOUBLE ]
+          mkTypeRec (i, T.Label)                  = [ mkEmptyRec TC.LABEL ]
+          mkTypeRec (i, (T.Opaque name))          = [ mkRec TC.STRUCT_NAME name, mkEmptyRec TC.OPAQUE ]
+          mkTypeRec (i, (T.Int w))                = [ mkRec TC.INTEGER [w] ]
+          mkTypeRec (i, ty@(T.Ptr s t))
+            | Just t' <- lookupTypeIndex' i t     = [ mkRec TC.POINTER [t', s] ]
+            | otherwise                           = error $ "Pointee " ++ show t ++ " must be emitted before " ++ show ty 
+          mkTypeRec (i, T.Half)                   = [ mkEmptyRec TC.HALF ]
+          mkTypeRec (i, ty@(T.Array n t))
+            | Just t' <- lookupTypeIndex' i t     = [ mkRec TC.ARRAY [n, t'] ]
+            | otherwise                           = error $ "Array " ++ show ty ++ " must not forward reference " ++ show t 
+          mkTypeRec (i, ty@(T.Vector n t))
+            | Just t' <- lookupTypeIndex' i t     = [ mkRec TC.VECTOR [n, t'] ]
+            | otherwise                           = error $ "Vector " ++ show ty ++ " must not forward reference " ++ show t
+          mkTypeRec (i, T.X86Fp80)                = [ mkEmptyRec TC.X86_FP80 ]
+          mkTypeRec (i, T.Fp128)                  = [ mkEmptyRec TC.FP128 ]
+          mkTypeRec (i, T.Metadata)               = [ mkEmptyRec TC.METADATA ]
+          mkTypeRec (i, T.X86Mmx)                 = [ mkEmptyRec TC.X86_MMX ]
+          mkTypeRec (i, ty@(T.StructAnon p ts))
+            | Just ts' <- mapM (lookupTypeIndex' i) ts = [ mkRec TC.STRUCT_ANON ((if p then 1 else 0 :: Int):ts') ]
+            | otherwise                           = error $ "Anon Struct " ++ show (pretty ty) ++ " must not forward reference its types " ++ show (pretty ts)
+          mkTypeRec (i, (T.StructNamed name p ts))= [ mkRec TC.STRUCT_NAME name, mkRec TC.STRUCT_NAMED ((if p then 1 else 0 :: Int):map (lookupTypeIndex tys) ts) ]
+          
+          mkTypeRec (i, ty@(T.Function vargs t ts))  
+            | Just ts' <- mapM (lookupTypeIndex' i) (t:ts) = [ mkRec TC.FUNCTION ((if vargs then 1 else 0::Int):ts') ] 
+            | otherwise                           = error . show $ text "Function" <+> pretty ty <+> text "must not forward reference its types" <+> pretty (t:ts)
+                                                    $+$ text "Types:" $+$ typeList
+          mkTypeRec (i, T.Token)                  = [ mkEmptyRec TC.TOKEN ]
 
 
 lookupIndexGeneric :: (HasCallStack, Pretty a, Eq a, Show a, Integral b) => [a] -> a -> b
@@ -229,15 +249,20 @@ instance ToNBitCode (Maybe Ident, Module) where
 
       -- * T Y P E S
       -- all top level types, and all the types to construct them. (e.g. i8** -> i8, i8*, and i8**).
-      topLevelTypes = foldl T.ftypes [] $ map ty flatSymbols
+      -- topLevelTypes = foldl T.ftypes [] $ map ty flatSymbols
       -- all symbols of functions, their constants and bodies.
-      fullFunctionSymbols = fsymbols [] mFns
+      -- fullFunctionSymbols = fsymbols [] mFns
       -- The type list now additionally also contains all types that are
       -- part of the function signatures, bodies and constants.
       --
       -- TODO: FLAGS: if -dump-typelist:
-      --   traceShowWith prettyIndexed $!
-      typeList = foldl T.ftypes topLevelTypes $ map ty fullFunctionSymbols
+      -- traceShowWith prettyIndexed $!
+      -- typeListO = foldl T.ftypes topLevelTypes $ map ty fullFunctionSymbols
+      -- typeList = traceShowWith (\x -> text "ORIGINAL:"
+      --                                 $+$ prettyIndexed typeListO
+      --                                 $+$ text "OPTIMIZED:"
+      --                                 $+$ prettyIndexed x ) $!
+      typeList = sortBy T.typeCompare (Set.toList mTypes) -- 
 
       -- | Turn a set of Constant Values unto BitCode Records.
       mkConstBlock :: HasCallStack

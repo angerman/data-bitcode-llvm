@@ -8,6 +8,8 @@ import qualified Data.BitCode.LLVM.Value as V
 import qualified Data.Map.Strict as Map
 import Data.BitCode.LLVM.ToBitCode (lookupSymbolIndex)
 
+import Data.List (sortBy)
+
 import GHC.Stack (HasCallStack)
 
 
@@ -33,14 +35,62 @@ instance Arbitrary T.Ty where
                     , pure T.Token
                     ]
 
-prop_typeOrdEq :: T.Ty -> Bool
-prop_typeOrdEq x = x `compare` x == EQ
+-- prop_typeOrdEq :: T.Ty -> Bool
+-- prop_typeOrdEq x = x `compare` x == EQ
 
 spec_bitcode :: Spec
 spec_bitcode = do
---  describe "types" $ do
---    when "`compare`ed" $ do
---      it "return EQ" $ property $
+  describe "types" $ do
+    context "typeCompared" $ do
+      let i32 = T.Int 32
+          i8  = T.Int 8
+          i8ptr = T.Ptr 0 i8
+          i8ptrptr = T.Ptr 0 i8ptr
+          i32ptr = T.Ptr 0 i32
+          f = T.Function False i32 [i32, i8ptrptr]
+          a = T.Array 13 i8
+          aptr = T.Ptr 0 a
+          f2 = T.Function True i32 [i8ptr]
+          f3 = T.Function False i32 [i8ptr]
+          f2ptr = T.Ptr 0 f2
+          fptr = T.Ptr 0 f
+          
+      it "should order function types prior to the function" $ do
+        f `T.typeCompare` i32 `shouldBe` GT
+        i32 `T.typeCompare` f `shouldBe` LT
+        f `T.typeCompare` i8ptr `shouldBe` GT
+        i8ptr `T.typeCompare` f `shouldBe` LT
+        f `T.typeCompare` i8 `shouldBe` GT
+        i8 `T.typeCompare` f `shouldBe` LT
+        f `T.typeCompare` i8ptrptr `shouldBe` GT
+        i8ptrptr `T.typeCompare` f `shouldBe` LT
+
+      it "should sort correctly" $ do
+        sortBy T.typeCompare [i32ptr,f,i8,i8ptr,i8ptrptr, i32]
+          `shouldBe` [i8,i32,i8ptr,i32ptr,i8ptrptr,f]
+        sortBy T.typeCompare [ i8
+                             , i32
+                             , i8ptr
+                             , a
+                             , f2
+                             , f3
+                             , f
+                             , f2ptr
+                             , i8ptrptr
+                             , fptr
+                             , aptr
+                             ]
+          `shouldBe` [ i8
+                     , i32
+                     , i8ptr
+                     , a
+                     , aptr
+                     , i8ptrptr
+                     , f3
+                     , f2
+                     , f2ptr
+                     , f
+                     , fptr ]
 --        \x -> x `compare` x == EQ
         -- (T.NumEntry 1 `compare` T.NumEntry 1) `shouldBe` EQ
         -- (T.Void       `compare` T.Void)       `shouldBe` EQ

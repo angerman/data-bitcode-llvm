@@ -68,10 +68,11 @@ isPtr _       = False
 
 typeCompare :: Ty -> Ty -> Ordering
 typeCompare x y | x == y = EQ
-                | isPrimitive x && isPrimitive y = if orderIdx x <= orderIdx y then LT else GT
+                | isPrimitive x && isPrimitive y = x `compare` y 
                 -- primitives first
                 | isPrimitive x && isComplex y = LT
-                | isComplex x && isComplex y && x `elem` (subTypes y) = LT
+                | isComplex x && isComplex y && length (subTypes x) < length (subTypes y) = LT
+                | isComplex x && isComplex y && x `elem` (subTypes y) = LT 
                 | isComplex x && isComplex y && and ((map isLtEq (subTypes x)) <*> subTypes y) = LT
                 | otherwise = GT
   where isLtEq x y = not (GT == typeCompare x y)

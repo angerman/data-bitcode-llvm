@@ -21,6 +21,7 @@ import Data.Word (Word64)
 
 import GHC.Generics                      (Generic)
 import Data.Binary                       (Binary)
+import Data.Set                          (Set)
 
 --- LLVM Bit Codes -------------------------------------------------------------
 -- see LLVMBitCodes.h (e.g. http://llvm.org/docs/doxygen/html/LLVMBitCodes_8h_source.html)
@@ -55,6 +56,11 @@ data Module = Module
   --       Only the mValues are used.
   , mDecls :: [Symbol]         -- ^ Function declarations for functions outside of the module.
   , mFns :: [Function]         -- ^ Function definitions for function contained within the module.
+  -- NOTE: while we could compute these from
+  --       the existing values, doing so is
+  --       rather expensive. And the constructor
+  --       might be able to compute these directrly.
+  , mTypes :: Set Ty
   }
   deriving (Show, Eq, Generic)
 

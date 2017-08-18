@@ -229,7 +229,8 @@ spec_llvm = do
       bcfile <- compile "test/fromBitcode/switch.ll"
       ret <- readBitcode bcfile
       ret `shouldSatisfy` isModule
-      let Right mod = ret
+      let Right mod@(_,mod') = ret
+      putStrLn . show $ pretty mod'
       writeFile' bcfile . map denormalize $ toBitCode mod
       ret <- readBitcode bcfile
       ret `shouldSatisfy` isModule
