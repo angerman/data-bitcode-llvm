@@ -614,6 +614,22 @@ parseFunctionBlock = \case
   (B.USELIST, b) -> trace ("Cannot parse uselist yet (" ++ show b ++ ")") >> return ()
   _ -> pure ()
 
+getVal :: (HasCallStack, Integral a) => a -> LLVMReader Symbol
+getVal n = do
+  valueList <- askValueList
+  let idx = fromIntegral n
+  if idx < 0 || idx > length valueList
+    then fail $ "index " ++ show idx ++ " out of range [0, " ++ show (length valueList) ++ ") of available values."
+    else pure (valueList !! idx)
+
+getVal' :: (HasCallStack, Integral a) => Ty -> a -> LLVMReader Symbol
+getVal' t n = do
+  val <- getVal n
+  if (ty val) == t
+    then return val
+    else do valueList <- askValueList
+            fail $ show val ++ " (" ++ show (fromIntegral n) ++ ") doesn't have type " ++ show t
+
 getRelativeVal :: (HasCallStack, Integral a) => [Symbol] -> a -> LLVMReader Symbol
 getRelativeVal refs n = do
   valueList <- askValueList
@@ -714,7 +730,7 @@ parseInst rs = \case
     where
       parseCase :: Ty -> [BC.Val] -> LLVMReader [(Symbol, BasicBlockId)]
       parseCase ty [] = pure []
-      parseCase ty (valId:blockId:cases) = (:) <$> ((,blockId) <$> getRelativeValWithType ty rs valId) <*> parseCase ty cases
+      parseCase ty (valId:blockId:cases) = (:) <$> ((,blockId) <$> getVal' ty valId) <*> parseCase ty cases
   -- 13
   -- (INST_INVOKE, vals)
   -- 14 - Unused
