@@ -239,9 +239,8 @@ instance ToNBitCode (Maybe Ident, Module) where
 
       -- all symbols; this should break them down so that we can construct them
       -- by successivly building on simple building blocks.
-      flatSymbols = fsymbols [] (globalSymbols ++ functionSymbols)
       -- constants
-      constantSymbols = filter isConstant flatSymbols
+      constantSymbols = Set.toList mConsts
 
       -- so the (module) valueList is as follows
       -- Order matters, as that is the order in which we put them into the module.
