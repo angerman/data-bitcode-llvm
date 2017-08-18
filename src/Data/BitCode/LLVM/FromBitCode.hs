@@ -477,7 +477,14 @@ parseModule bs = do
 
   typeSet <- Set.fromList <$> askTypeList
 
-  return $ Module version triple layout values functionDecl fns typeSet
+  let isConstant x
+        | (V.Constant{})   <- V.symbolValue x = True
+        | otherwise                           = False
+
+
+  constsSet  <- Set.fromList . filter isConstant <$> askValueList
+
+  return $ Module version triple layout values functionDecl fns constsSet typeSet
   where
     functionBlocks :: [[NBitCode]]
     functionBlocks = [bs' | (B.FUNCTION, bs') <- blocks bs ]

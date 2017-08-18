@@ -60,6 +60,7 @@ data Module = Module
   --       the existing values, doing so is
   --       rather expensive. And the constructor
   --       might be able to compute these directrly.
+  , mConsts :: Set Symbol
   , mTypes :: Set Ty
   }
   deriving (Show, Eq, Generic)
