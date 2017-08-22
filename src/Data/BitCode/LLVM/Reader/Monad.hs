@@ -3,7 +3,7 @@ module Data.BitCode.LLVM.Reader.Monad
   , Result
   , evalLLVMReader, traceEvalLLVMReader
   , tellType,  askType
-  , tellValue, askValue
+  , tellValue, askValue, askValue'
   , ask, askTypeList, askValueList, tellValueList
 
   , tellValueSymbol, askValueSymbolTable, tellValueSymbolTable
@@ -31,6 +31,7 @@ import Debug.Trace (traceStack)
 import Control.Monad (MonadPlus(..), when)
 import Control.Applicative (Alternative(..))
 import Data.Maybe (fromMaybe)
+import Data.Word (Word64)
 
 -- | The LLVM IR essentially describes a @Module@
 -- there can only be one.  Hence this reader mostly
@@ -38,7 +39,8 @@ import Data.Maybe (fromMaybe)
 
 import Data.BitCode.LLVM -- essential data types
 import Data.BitCode.LLVM.Type (Ty)
-import Data.BitCode.LLVM.Value    (Value(FwdRef), Const, Named(..), Symbol, ValueSymbolTable, ValueSymbolEntry, symbolValue, symbolName, entryName)
+import Data.BitCode.LLVM.Classes.HasType (ty)
+import Data.BitCode.LLVM.Value    (Value(FwdRef), Const, Named(..), Symbol, ValueSymbolTable, ValueSymbolEntry, symbolType, symbolValue, symbolName, entryName)
 import Data.BitCode.LLVM.Function (Function)
 import Data.BitCode.LLVM.Metadata (Metadata)
 import Data.BitCode.LLVM.ParamAttr
@@ -154,7 +156,7 @@ askType n = nth' n =<< types <$> ask
 
 symbolicate :: (Int, ValueSymbolEntry) -> [Symbol] -> [Symbol]
 symbolicate (idx, entry) xs = case nth idx xs of
-  Just s -> take idx xs ++ [Named (entryName entry) (symbolValue s)] ++ drop (idx+1) xs
+  Just s -> take idx xs ++ [Named (entryName entry) (symbolType s) (symbolValue s)] ++ drop (idx+1) xs
   Nothing -> xs
 
 -- | Adds a Value - Symbol element to the lookup table.
@@ -182,12 +184,20 @@ tellValue :: Value -> LLVMReader ()
 tellValue v = modify $ \c -> let
   n = length (symbols c)
   s = case lookup n (valueSymbolTable c) of
-    Just e -> Named (entryName e) v
-    Nothing -> Unnamed v
+    Just e -> Named (entryName e) (ty v) v
+    Nothing -> Unnamed (ty v) v
   in c { symbols = symbols c ++ [s] }
 
-askValue :: (Integral a) => a -> LLVMReader Symbol
-askValue n = fromMaybe (Unnamed (FwdRef (fromIntegral n))) . nth n . symbols <$> ask
+askValue :: (Integral a) => Ty -> a -> LLVMReader Symbol
+askValue t n = fromMaybe (mkFwdRef t (fromIntegral n)) . nth n . symbols <$> ask
+  where mkFwdRef :: Ty -> Word64 -> Symbol
+        mkFwdRef t n = Unnamed t (FwdRef n)
+
+-- | stricter version of askValue. This will not create
+-- a FwdRef if necessary.
+askValue' :: (Integral a, Show a) => a -> LLVMReader Symbol
+askValue' n = fromMaybe (error $ "unable to find symbol no. " ++ (show n))
+              . nth n . symbols <$> ask
 
 tellMetadata :: Metadata -> LLVMReader ()
 tellMetadata md = modify $ \c -> c { metadata = metadata c ++ [md] }

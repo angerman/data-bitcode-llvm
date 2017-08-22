@@ -53,7 +53,6 @@ prefix (Arg{}) = text "arg "
 prefix (Value{}) = text "val "
 prefix (TRef{}) = text "ref "
 prefix (FwdRef i) = text "fwdRef" <+> int (fromIntegral i)
-prefix (V.Label{}) = text "?"
 
 suffix :: Value -> Doc
 suffix (Global{..}) = parens (pretty gInit) <+> text "::" <+> pretty gPointerType
@@ -64,7 +63,6 @@ suffix (Arg t r) = int r <+> text "::" <+> pretty t
 suffix (Value t) = text "::" <+> pretty t
 suffix (TRef t r) = int r <+> text "::" <+> pretty t
 suffix (FwdRef i) = empty
-suffix (V.Label t) = text "::" <+> pretty t
 
 -- * Values
 instance Pretty Value where
@@ -73,15 +71,14 @@ instance Pretty Value where
 
 -- * Symbols
 instance Pretty Symbol where
-  pretty (Unnamed v) = pretty v
-  pretty (Named n v) = prefix v <> text n <+> suffix v
+  pretty (Unnamed _ v) = pretty v
+  pretty (Named n _ v) = prefix v <> text n <+> suffix v
 
 -- * Types
 instance Pretty Ty where
   pretty Void = text "()"
   pretty T.Float = text "float"
   pretty Double = text "double"
-  pretty T.Label = text "lbl"
   pretty (Opaque n) = text "opaque" <+> text n
   pretty (T.Int w) = char 'i' <> pretty w
   pretty (Ptr _ f@(T.Function{})) = parens (pretty f) <> char '*'
@@ -130,8 +127,8 @@ instance Pretty BasicBlock where
   pretty (BasicBlock insts) = vcat (map pretty insts)
 
 instance Pretty (Maybe Symbol, Inst) where
-  pretty (Just (Unnamed (TRef t r)), inst) = text "ref" <+> int r <+> text "<-" <+> pretty inst
-  pretty (Just (Named n (TRef t r)), inst) = text n <+> parens (text "ref" <+> int r) <+> text "<-" <+> pretty inst
+  pretty (Just (Unnamed _ (TRef t r)), inst) = text "ref" <+> int r <+> text "<-" <+> pretty inst
+  pretty (Just (Named n _ (TRef t r)), inst) = text n <+> parens (text "ref" <+> int r) <+> text "<-" <+> pretty inst
   pretty (Nothing,  inst) = pretty inst
 
 instance Pretty CallingConv where

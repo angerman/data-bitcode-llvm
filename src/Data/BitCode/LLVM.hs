@@ -69,7 +69,8 @@ instance ToSymbols Module where
   symbols (Module{..}) = mValues ++ mDecls ++ concatMap symbols mFns
 
 instance HasType Symbol where
-  ty = ty . symbolValue
+  ty (V.Named _ t _) = t
+  ty (V.Unnamed t _) = t
 
 instance Binary Ident
 instance Binary Module

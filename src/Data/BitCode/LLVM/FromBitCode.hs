@@ -7,7 +7,7 @@ module Data.BitCode.LLVM.FromBitCode where
 import Data.Bits (testBit, shift, (.|.), (.&.), complement, FiniteBits)
 import Data.Word (Word64)
 
-import Control.Monad (when, unless, foldM, foldM_)
+import Control.Monad (when, unless, foldM, foldM_, zipWithM)
 
 import Data.BitCode (NBitCode(..), normalize, records, blocks, lookupBlock, lookupRecord)
 import qualified Data.BitCode as BC
@@ -220,19 +220,19 @@ parseConstants = foldM_ parseConstant undefined . records
           (CST_CODE_AGGREGATE, []) -> error "Invalid record: AGGREGATE must have at least one op!"
           (CST_CODE_AGGREGATE, valIds)
           -- XXX: We *assume*, but do not verify that the types of the askValue's actually match those of the structure.
-            | T.StructAnon{}   <- ty -> add =<< mkConst <$> (V.Struct <$> mapM askValue valIds)
-            | T.StructNamed{}  <- ty -> add =<< mkConst <$> (V.Struct <$> mapM askValue valIds)
-            | T.Array _ t      <- ty -> add =<< mkConst <$> (V.Array <$> mapM askValue valIds)
-            | T.Vector _ t     <- ty -> add =<< mkConst <$> (V.Vector <$> mapM askValue valIds)
-            | otherwise              -> add $ mkConst V.Undef
+            | T.StructAnon _ ts    <- ty -> add =<< mkConst <$> (V.Struct <$> zipWithM askValue ts valIds)
+            | T.StructNamed _ _ ts <- ty -> add =<< mkConst <$> (V.Struct <$> zipWithM askValue ts valIds)
+            | T.Array _ t          <- ty -> add =<< mkConst <$> (V.Array <$> mapM (askValue t) valIds)
+            | T.Vector _ t         <- ty -> add =<< mkConst <$> (V.Vector <$> mapM (askValue t) valIds)
+            | otherwise                  -> add $ mkConst V.Undef
           (CST_CODE_STRING, []   ) -> error "Invalid record: STRING must have at least one op!"
           (CST_CODE_STRING, vals ) -> add $ mkConst (V.String $ map toEnum' vals)
           (CST_CODE_CSTRING, []  ) -> error "Invalid record: CSTRING must have at least one op!"
           (CST_CODE_CSTRING, vals) -> add $ mkConst (V.CString $ map toEnum' vals)
           -- TODO: support Constant Binop with 4 operands.
-          (CST_CODE_CE_BINOP, [code, lhs, rhs]) -> add =<< mkConst <$> (V.BinOp (toEnum' code) <$> askValue lhs <*> askValue rhs)
+          (CST_CODE_CE_BINOP, [code, lhs, rhs]) -> add =<< mkConst <$> (V.BinOp (toEnum' code) <$> askValue' lhs <*> askValue' rhs)
           (CST_CODE_CE_BINOP, _) -> error "Invalid record: BINOP only suppored with exactly three ops!"
-          (CST_CODE_CE_CAST, [ code, tyId, valId ]) -> add =<< mkConst <$> (V.Cast <$> askType tyId <*> pure (toEnum' code) <*> askValue valId)
+          (CST_CODE_CE_CAST, [ code, tyId, valId ]) -> add =<< mkConst <$> (V.Cast <$> askType tyId <*> pure (toEnum' code) <*> askValue' valId)
           (CST_CODE_CE_BINOP, _) -> error "Invalid record: CAST only suppored with exactly three ops!"
           -- TODO: proper parsing.
           -- if even, assume pointee = nullptr
@@ -273,7 +273,7 @@ parseConstants = foldM_ parseConstant undefined . records
                 getTypedSymbols [] = pure []
                 getTypedSymbols (tId:vId:vs) = do
                   t <- askType tId
-                  v <- askValue vId
+                  v <- askValue t vId
                   -- TODO: check that the type of v matches t.
                   (v:) <$> getTypedSymbols vs
 
@@ -319,7 +319,7 @@ parseGlobalVar vals
       ty <- askType ptrTyId
       unless (testBit isConst 1) $ fail "non-explicit type global vars are not (yet) supported"
       let addressSpace = shift isConst (-2)
-          initVal      = if initId /= 0 then Just (Unnamed (FwdRef (initId -1))) else Nothing
+          initVal      = if initId /= 0 then Just (Unnamed ty (FwdRef (initId -1))) else Nothing
           linkage'     = toEnum' linkage
           storageClass = upgradeDLLImportExportLinkage linkage'
           comdat       = 0 -- XXX. the Reader does some weird hasImplicitComdat for older bitcode.
@@ -335,7 +335,7 @@ parseGlobalVar vals
       -- TODO: isConst has bit 0 set if const. bit 1 if explicit type. We only handle explicit type so far.
       unless (testBit isConst 1) $ fail "non-explicit type global vars are not (yet) supported"
       let addressSpace = shift isConst (-2)
-          initVal      = if initId /= 0 then Just (Unnamed (FwdRef (initId - 1))) else Nothing
+          initVal      = if initId /= 0 then Just (Unnamed ty (FwdRef (initId - 1))) else Nothing
 
       tellValue $ Global (Ptr 0 ty) (testBit isConst 0) addressSpace initVal
                          (toEnum' linkage) paramAttrId section (toEnum' visibility) (toEnum' threadLocalMode)
@@ -359,8 +359,8 @@ parseFunctionDecl'
   , prefixDataId, personality ]                         -- 15
   = do
   ty <- askType tyId
-  let prologueData = if prologueDataId /= 0 then Just (Unnamed (FwdRef (prologueDataId -1))) else Nothing
-      prefixData = if prefixDataId /= 0 then Just (Unnamed (FwdRef (prefixDataId -1))) else Nothing
+  let prologueData = if prologueDataId /= 0 then Just (Unnamed ty (FwdRef (prologueDataId -1))) else Nothing
+      prefixData = if prefixDataId /= 0 then Just (Unnamed ty (FwdRef (prefixDataId -1))) else Nothing
   tellValue $ V.Function (Ptr 0 ty) (toEnum' cconv) (toEnum' linkage)
                          paramAttrId alignment section (toEnum' visibility) gc
                          (unnamedAddr /= 0) (toEnum' storageClass)
@@ -385,7 +385,7 @@ parseAlias False [ tyId, valId, linkage, visibility, storageClass, threadLocalMo
   nTypes <- length <$> askTypeList
   ty@(Ptr addrSpace _) <- askType tyId
   -- val <- askValue valId
-  tellValue $ Alias ty addrSpace (Unnamed (V.FwdRef valId)) (toEnum' linkage) (toEnum' visibility) (toEnum' threadLocalMode) (unnamedAddr /= 0) (toEnum' storageClass)
+  tellValue $ Alias ty addrSpace (Unnamed undefined (V.FwdRef valId)) (toEnum' linkage) (toEnum' visibility) (toEnum' threadLocalMode) (unnamedAddr /= 0) (toEnum' storageClass)
 parseAlias False [ tyId, valId, linkage, visibility, storageClass, threadLocalMode ]
   = parseAlias False [ tyId, valId, linkage, visibility, storageClass, threadLocalMode, 0 ]
 parseAlias False [ tyId, valId, linkage, visibility, storageClass ]
@@ -397,7 +397,7 @@ parseAlias False [ tyId, valId, linkage ]
 -- new
 parseAlias True [ tyId, addrSpace, valId, linkage, visibility, storageClass, threadLocalMode, unnamedAddr ] = do
   ty <- askType tyId
-  val <- askValue valId
+  val <- askValue ty valId
   tellValue $ Alias ty addrSpace val (toEnum' linkage) (toEnum' threadLocalMode) (toEnum' visibility) (unnamedAddr /= 0) (toEnum' storageClass)
 parseAlias True [ tyId, addrSpace, valId, linkage, visibility, storageClass, threadLocalMode ]
   = parseAlias True [ tyId, addrSpace, valId, linkage, visibility, storageClass, threadLocalMode, 0 ]
@@ -428,8 +428,8 @@ resolveFwdRefs ss = map (fmap' resolveFwdRef') ss
     -- TODO: Maybe Symbol should be more generic? Symbol a,
     --       then we could have Functor Symbol.
     fmap' :: (Value -> Value) -> Symbol -> Symbol
-    fmap' f (Named s v) = Named s (f v)
-    fmap' f (Unnamed v) = Unnamed (f v)
+    fmap' f (Named s t v) = let v' = f v in Named s (ty v) v
+    fmap' f (Unnamed t v) = let v' = f v in Unnamed (ty v) v
     resolveFwdRef' :: Value -> Value
     resolveFwdRef' g@(Global{..}) = case gInit of
       Just s | (FwdRef id) <- symbolValue s -> g { gInit = Just $ (ss !! (fromIntegral id)) }
@@ -465,10 +465,10 @@ parseModule bs = do
 
   trace "Parsing Decls"
 
-  let functionDefs = [f | f@(Named _ (V.Function {..})) <- values, not (feProto fExtra)] ++
-                     [f | f@(Unnamed (V.Function {..})) <- values, not (feProto fExtra)]
-      functionDecl = [f | f@(Named _ (V.Function {..})) <- values, feProto fExtra ] ++
-                     [f | f@(Unnamed (V.Function {..})) <- values, feProto fExtra ]
+  let functionDefs = [f | f@(Named _ _ (V.Function {..})) <- values, not (feProto fExtra)] ++
+                     [f | f@(Unnamed _ (V.Function {..})) <- values, not (feProto fExtra)]
+      functionDecl = [f | f@(Named _ _ (V.Function {..})) <- values, feProto fExtra ] ++
+                     [f | f@(Unnamed _ (V.Function {..})) <- values, feProto fExtra ]
   (unless (length functionDefs == length functionBlocks)) $ fail $ "#functionDecls (" ++ show (length functionDefs) ++ ") does not match #functionBodies (" ++ show (length functionBlocks) ++ ")"
 
   trace "Parsing Functions"
@@ -490,9 +490,9 @@ parseModule bs = do
     functionBlocks = [bs' | (B.FUNCTION, bs') <- blocks bs ]
     symbolize :: [(Int, ValueSymbolEntry)] -> [Value] -> [Symbol]
     symbolize m = map (\(idx, val) -> case (lookup idx m) of
-                          Just (Entry s) -> Named s val
-                          Just (FnEntry _ s) -> Named s val
-                          Nothing -> Unnamed val
+                          Just (Entry s)     -> Named s (ty val) val
+                          Just (FnEntry _ s) -> Named s (ty val) val
+                          Nothing            -> Unnamed (ty val) val
                           ) . zip [0..]
 
 -- | Parse value symbol table
@@ -579,7 +579,7 @@ parseModuleRecord (id,bs) = trace ("parseModuleRecord " ++ show id) >> case (id,
 -- prototype functions are external.
 --
 parseFunction :: HasCallStack => (Symbol, [NBitCode]) -> LLVMReader F.Function
-parseFunction (f@(Named _ V.Function{..}), b) = do
+parseFunction (f@(Named _ _ V.Function{..}), b) = do
   -- remember the size of the value list. We need to trim it back down after
   -- parsing; and might want to attach the new values to the constants of the Function.
   -- The same holds for metadata attachment.
@@ -609,7 +609,7 @@ parseFunction (f@(Named _ V.Function{..}), b) = do
   tellValueSymbolTable savedVST
   return $ F.Function f consts (reverse bbs)
 
-parseFunction ((Unnamed f), b) = parseFunction ((Named "dummy" f), b)
+parseFunction ((Unnamed t f), b) = parseFunction ((Named "dummy" t f), b)
 parseFunction _ = fail "Invalid arguments"
 
 
@@ -665,7 +665,7 @@ foldHelper s@((BasicBlock insts):bbs,vs) instr = do
   i <- parseInst vs instr
   case i of
     Nothing -> return s
-    Just i -> do let mref = Unnamed . flip TRef (length vs) <$> instTy i
+    Just i -> do let mref = (\v -> Unnamed (ty v) v) . flip TRef (length vs) <$> instTy i
                      vs'    = vs ++ [r | Just r <- [mref]]
                      insts' = insts ++ [(mref, i)]
                      bbs'   = (BasicBlock insts'):bbs
@@ -750,7 +750,7 @@ parseInst rs = \case
   (INST_ALLOCA, [ instty, opty, op, align ]) -> do
     iTy <- askType instty
     oTy <- askType opty
-    val <- askValue op -- probably a constant.
+    val <- askValue oTy op -- probably a constant.
     unless (oTy == ty val) $ pure $ error "Invalid record"
     return . Just $  Alloca (Ptr 0 iTy) val (decodeAlign align)
       where decodeAlign :: Word64 -> Word64
