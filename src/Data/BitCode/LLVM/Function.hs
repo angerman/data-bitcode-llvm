@@ -53,5 +53,5 @@ instance HasLinkage Function where
 fbmap :: (BasicBlock -> BasicBlock) -> Function -> Function
 fbmap f x@(Function{..}) = x { dBody = map f dBody }
 
-instance Binary a => Binary (NamedBlock a)
-instance Binary Function
+-- instance Binary a => Binary (NamedBlock a)
+-- instance Binary Function

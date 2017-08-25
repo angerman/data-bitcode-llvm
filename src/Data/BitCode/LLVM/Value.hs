@@ -1,6 +1,8 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric   #-}
-
+{-# LANGUAGE BangPatterns    #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
 module Data.BitCode.LLVM.Value where
 
 import Data.Word                         (Word16, Word32, Word64)
@@ -19,6 +21,15 @@ import GHC.Generics                      (Generic)
 import Data.Binary                       (Binary)
 
 import GHC.Stack (HasCallStack)
+
+import qualified Debug.Trace as Trace
+
+trace :: String -> a -> a
+trace _ x = x
+-- trace = Trace.trace
+traceM :: Applicative f => String -> f () 
+traceM _ = pure ()
+
 
 -- | Just a reference.
 type Ref = Int
@@ -41,13 +52,13 @@ data Const
   | WideInt ![Int]   -- ^ [n x intval]
   | Float !FpValue   -- ^ [fpval]
   -- aggregate constants. Undef is also an aggregate.
-  | Array ![Symbol] -- ^ aggregate
-  | Vector ![Symbol] -- ^ aggregate
-  | Struct ![Symbol] -- ^ aggregate
+  | Array  [Symbol] -- ^ aggregate
+  | Vector [Symbol] -- ^ aggregate
+  | Struct [Symbol] -- ^ aggregate
   | String !String
   | CString !String
-  | BinOp !BinOp !Symbol !Symbol -- ^ [opcode, opval, opval]
-  | Cast !Ty !CastOp !Symbol     -- ^ [opcode, opty, opval]
+  | BinOp !BinOp Symbol Symbol -- ^ [opcode, opval, opval]
+  | Cast Ty !CastOp Symbol     -- ^ [opcode, opty, opval]
   | Gep ![Word64]                -- ^ [n x operands]
   | Select !Word64 !Word64 !Word64 -- ^ [opval, opval, opval]
   | ExtractElt !Word64 !Word64 !Word64 -- ^ [opty, opval, opval]
@@ -56,7 +67,7 @@ data Const
   | Cmp !Word64 !Word64 !Word64 !Word64 -- ^ [opty, opval, opval, pred]
   -- | InlineAsm -- TODO
   | ShuffleVecEx !Word64 !Word64 !Word64 !Word64 -- ^ [opty, opval, opval, opval]
-  | InboundsGep !Ty ![Symbol] -- ^ [[ty,] opty, opval,...]; if ty defaults to nullptr.
+  | InboundsGep Ty [Symbol] -- ^ [[ty,] opty, opval,...]; if ty defaults to nullptr.
   | BlockAddress !Word64 !Word64 !Word64 -- ^ [fnty, fnval, bb#]
   | Data ![Word64] -- ^ [n x elements]
   -- | InlineAsm -- TODO
@@ -65,8 +76,8 @@ data Const
 data FunctionExtra
   = FE
   { feProto :: !Bool                   -- ^ Non-zero if this entry represents a declaration rather than a definition
-  , fePrologueData :: !(Maybe Symbol)    -- ^ If non-zero, the value index of the prologue data for this function, plus 1. 
-  , fePrefixData :: !(Maybe Symbol)      -- ^ If non-zero, the value index of the prefix data for this function, plus 1.
+  , fePrologueData :: (Maybe Symbol)    -- ^ If non-zero, the value index of the prologue data for this function, plus 1. 
+  , fePrefixData :: (Maybe Symbol)      -- ^ If non-zero, the value index of the prefix data for this function, plus 1.
   }
   deriving (Show, Generic)
 
@@ -82,50 +93,50 @@ instance Eq FunctionExtra where
 data Value
   -- | global variables
   = Global
-    { gPointerType :: !Ty              -- ^ The type index of the pointer type used to point to this global variable
-    , gIsConst :: !Bool                -- ^ Non-zero if the variable is treated as constant within the module, or zero if it is not
-    , gAddressSpace :: !Word64
-    , gInit :: !(Maybe Symbol)           -- ^ If non-zero, the value index of the initializer for this variable, plus 1.
-    , gLinkage :: !Linkage
-    , gParamAttrs :: !Word64
+    { gPointerType :: Ty              -- ^ The type index of the pointer type used to point to this global variable
+    , gIsConst :: Bool                -- ^ Non-zero if the variable is treated as constant within the module, or zero if it is not
+    , gAddressSpace :: Word64
+    , gInit :: (Maybe Symbol)           -- ^ If non-zero, the value index of the initializer for this variable, plus 1.
+    , gLinkage :: Linkage
+    , gParamAttrs :: Word64
 --    , gAlignment :: Word64          -- ^ The logarithm base 2 of the variable's requested alignment, plus 1
     -- TODO: turn this into a Maybe
-    , gSection :: !Word64              -- ^ If non-zero, the 1-based section index in the table of @MODULE_SECTION_NAME@.
-    , gVisibility :: !Visibility       -- ^ If present, an encoding of the visibility of this variable
-    , gThreadLocal :: !ThreadLocalMode -- ^ If present, an encoding of the thread local storage mode of the variable
-    , gUnnamedAddr :: !Bool            -- ^ If present and non-zero, indicates that the variable has @unnamed_addr@
-    , gExternallyInitialized :: !Bool
-    , gDLLStorageClass :: !DLLStorageClass -- ^ If present, an encoding of the DLL storage class of this variable
-    , gComdat :: !Word64 -- ???
+    , gSection :: Word64              -- ^ If non-zero, the 1-based section index in the table of @MODULE_SECTION_NAME@.
+    , gVisibility :: Visibility       -- ^ If present, an encoding of the visibility of this variable
+    , gThreadLocal :: ThreadLocalMode -- ^ If present, an encoding of the thread local storage mode of the variable
+    , gUnnamedAddr :: Bool            -- ^ If present and non-zero, indicates that the variable has @unnamed_addr@
+    , gExternallyInitialized :: Bool
+    , gDLLStorageClass :: DLLStorageClass -- ^ If present, an encoding of the DLL storage class of this variable
+    , gComdat :: Word64 -- ???
     }
   -- | function values
   | Function
-    { fType :: !Ty                      -- ^ The type index of the function type describing this function
-    , fCallingConv :: !CallingConv
-    , fLinkage :: !Linkage
-    , fParamAttrs :: !Word64            -- ^ If nonzero, the 1-based parameter attribute index into the table of @PARAMATTR_CODE_ENTRY@ entries.
-    , fAlignment :: !Word64
-    , fSection :: !Word64               -- ^ If non-zero, the 1-based section index in the table of @MODULE_CODE_SECTIONNAME@ entries.
-    , fVisibility :: !Visibility
-    , fGC :: !Word64                    -- ^ If present and nonzero, the 1-based garbage collector index in the table of @MODULE_CODE_GCNAME@ entries.
-    , fUnnamedAddr :: !Bool             -- ^ If present and non-zero, indicates that the function has @unnamed_addr@.
-    , fDLLStorageClass :: !DLLStorageClass -- ^ An encoding of the DLL storage class of this function.
-    , fComdat :: !Word64                -- ^ An encoding of the COMDAT of this function
-    , fPersonalityFn :: !Word64         -- ^ If non-zero, the value index of the personality function for this function, plus 1.
-    , fExtra :: !FunctionExtra          
+    { fType :: Ty                      -- ^ The type index of the function type describing this function
+    , fCallingConv :: CallingConv
+    , fLinkage :: Linkage
+    , fParamAttrs :: Word64            -- ^ If nonzero, the 1-based parameter attribute index into the table of @PARAMATTR_CODE_ENTRY@ entries.
+    , fAlignment :: Word64
+    , fSection :: Word64               -- ^ If non-zero, the 1-based section index in the table of @MODULE_CODE_SECTIONNAME@ entries.
+    , fVisibility :: Visibility
+    , fGC :: Word64                    -- ^ If present and nonzero, the 1-based garbage collector index in the table of @MODULE_CODE_GCNAME@ entries.
+    , fUnnamedAddr :: Bool             -- ^ If present and non-zero, indicates that the function has @unnamed_addr@.
+    , fDLLStorageClass :: DLLStorageClass -- ^ An encoding of the DLL storage class of this function.
+    , fComdat :: Word64                -- ^ An encoding of the COMDAT of this function
+    , fPersonalityFn :: Word64         -- ^ If non-zero, the value index of the personality function for this function, plus 1.
+    , fExtra :: FunctionExtra          
     }
   -- | The @ALIAS@ record (code 9) marks the definition of an alias.
   | Alias
-    { aType :: !Ty                      -- ^ The type index of the alias
-    , aAddrSpace :: !Word64
-    , aVal  :: !Symbol                  -- ^ The value index of the aliased value
-    , aLinkage :: !Linkage
-    , aVisibility :: !Visibility
-    , aThreadLocal :: !ThreadLocalMode  -- ^ If present, an encoding of the thread local storage mode of the variable
-    , aUnnamedAddr :: !Bool             -- ^ If present and non-zero, indicates that the function has @unnamed_addr@.
-    , aDLLStorageClass :: !DLLStorageClass
+    { aType :: Ty                      -- ^ The type index of the alias
+    , aAddrSpace :: Word64
+    , aVal  :: Symbol                  -- ^ The value index of the aliased value
+    , aLinkage :: Linkage
+    , aVisibility :: Visibility
+    , aThreadLocal :: ThreadLocalMode  -- ^ If present, an encoding of the thread local storage mode of the variable
+    , aUnnamedAddr :: Bool             -- ^ If present and non-zero, indicates that the function has @unnamed_addr@.
+    , aDLLStorageClass :: DLLStorageClass
     }
-  | Constant { cTy :: !Ty, cConst :: !Const } -- ^ constant values
+  | Constant { cTy :: Ty, cConst :: Const } -- ^ constant values
   | Arg Ty Ref                         -- ^ function arguments, within function bodies
   | Value Ty                           -- ^ function values, from instructions
   -- | Typed reference
@@ -158,55 +169,108 @@ instance HasLinkage Value where
   getLinkage (Alias{aLinkage = l})    = l
   getLinkage other = error $ show other ++ " has no linkage!" 
 
-  setLinkage l g@(Global{})   = g { gLinkage = l }
-  setLinkage l f@(Function{}) = f { fLinkage = l }
-  setLinkage l a@(Alias{})    = a { aLinkage = l }
-  setLinkage _ other = error $ show other ++ " has no linkage!"
+  setLinkage l v = trace "[HasLinkage Value]" $ case v of
+    g@(Global{})   -> g { gLinkage = l }
+    f@(Function{}) -> f { fLinkage = l }
+    a@(Alias{})    -> a { aLinkage = l }
+    other          -> error $ show other ++ " has no linkage!"
 
 
 instance HasType Value where
-  ty (Global{..}) = gPointerType
-  ty (Function{..}) = fType
-  ty (Alias{..}) = aType
-  ty (Constant t _) = t
-  ty (Arg t _) = t
-  ty (Value t) = t
-  ty (TRef t _)= t
+  ty v = trace "[HasType Value]" $ case v of
+    (Global{..})   -> gPointerType
+    (Function{..}) -> fType
+    (Alias{..})    -> aType
+    (Constant t _) -> t
+    (Arg t _)      -> t
+    (Value t)      -> t
+    (TRef t _)     -> t
+
+data Indexed a = Indexed (Int -> a)
+
+instance Show a => Show (Indexed a)
+  where show _ = "..."
+
+type Index = Indexed Word64
+
+instance Eq (Indexed a) where
+  x == y = True
+
+instance Ord (Indexed a) where
+  x `compare` y = EQ
+
+instance Functor Indexed where
+  f `fmap` (Indexed x) = Indexed (\y -> f (x y))
+
+instance Applicative Indexed where
+  pure x = Indexed (pure x)
+  (Indexed x) <*> (Indexed y) = Indexed (x <*> y)
+ 
+instance Ord (Int -> Named a) where
+  x `compare` y = EQ
+
+instance Eq (Int -> Named a) where
+  x == y = True
+
+instance Show (Int -> Named a) where
+  show _ = "..."
 
 data Named a
-  = Named !String !Ty a
-  | Unnamed !Ty a
-  deriving (Show, Eq, Ord, Generic)
+  = Named !String Index Ty a
+  | Unnamed Index Ty a
+  | Lazy !String Ty (Int -> (Named a))
+  deriving (Generic)
 
-mkNamed :: String -> Value -> Symbol
-mkNamed s v = Named s (ty v) v
+deriving instance Eq (Named Value)
+deriving instance Ord (Named Value)
+deriving instance Show (Named Value)
 
-mkUnnamed :: Value -> Symbol
-mkUnnamed v = Unnamed (ty v) v
+mkNamed :: HasCallStack => Ty -> String -> Value -> Symbol
+mkNamed t s v = Named s (Indexed (const undefined)) t (trace ("[mkNamed] accessing " ++ s ++ " value") v)
+
+mkUnnamed :: HasCallStack => Ty -> Value -> Symbol
+mkUnnamed t v = Unnamed (Indexed (const undefined)) t (trace ("[mkUnnamed] accessing unnamed value of type " ++ show t) v)
 
 instance Functor Named where
-  fmap f (Named n t x) = Named n t (f x)
-  fmap f (Unnamed t x) = Unnamed t (f x)
+  fmap f (Named n i t x) = Named n i t (f (trace "[fmap] symbol value" x))
+  fmap f (Unnamed i t x) = Unnamed i t (f (trace "[fmap] symbol value" x))
+  fmap f (Lazy n t v) = Lazy n t (\x -> fmap f (v x))
 
 
 type Symbol = Named Value
 
 instance HasLinkage a => HasLinkage (Named a) where
-  getLinkage (Named _ _ x) = getLinkage x
-  getLinkage (Unnamed _ x) = getLinkage x
+  getLinkage (Named _ _ _ x) = getLinkage x
+  getLinkage (Unnamed _ _ x) = getLinkage x
   setLinkage l = fmap (setLinkage l)  
 
 symbolValue :: Symbol -> Value
-symbolValue (Named _ _ v) = v
-symbolValue (Unnamed _ v) = v
+symbolValue (Named n _ _ v) = trace ("[symbolValue] for symbol " ++ n) v
+symbolValue (Unnamed _ _ v) = trace ("[symbolValue] for symbol") v
+symbolValue (Lazy n _ v) = symbolValue (v 0)
 
 symbolName :: Symbol -> Maybe String
-symbolName (Named s _ _) = Just s
-symbolName (Unnamed _ _) = Nothing
+symbolName (Named s _ _ _) = Just s
+symbolName (Unnamed _ _ _) = Nothing
+symbolName (Lazy s _ _) = Just s
 
 symbolType :: Symbol -> Ty
-symbolType (Named _ t _) = t
-symbolType (Unnamed t _) = t
+symbolType (Named _ _ t _) = t
+symbolType (Unnamed _ t _) = t
+symbolTYpe (Lazy _ t _) = t
+
+symbolIndex :: Symbol -> Index
+symbolIndex (Named _ i _ _) = i
+symbolIndex (Unnamed i _ _) = i
+symbolIndex (Lazy _ _ s) = symbolIndex (s 0)
+
+symbolIndexValue :: HasCallStack => Symbol -> Word64
+symbolIndexValue s = let (Indexed i) = symbolIndex s in i 0
+
+withIndex :: (Int -> Word64) -> Symbol -> Symbol
+withIndex i (Named s _ t v) = (Named s (Indexed i) t (trace ("evaluating indexed " ++ s) v))
+withIndex i (Unnamed _ t v) = (Unnamed (Indexed i) t (trace "evaluating indexed unnamed" v))
+withIndex i (Lazy _ _ _) = error "Can not set value on lazy!"
 
 type ValueSymbolTable = [(Int,ValueSymbolEntry)]
 
@@ -219,8 +283,8 @@ entryName :: ValueSymbolEntry -> String
 entryName (Entry s) = s
 entryName (FnEntry _ s) = s
 
-instance Binary FunctionExtra
-instance Binary FpValue
-instance Binary Const
-instance Binary Value
-instance Binary a => Binary (Named a)
+-- instance Binary FunctionExtra
+-- instance Binary FpValue
+-- instance Binary Const
+-- instance Binary Value
+-- instance Binary a => Binary (Named a)

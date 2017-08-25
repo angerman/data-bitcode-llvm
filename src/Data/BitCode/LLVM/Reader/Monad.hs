@@ -40,7 +40,7 @@ import Data.Word (Word64)
 import Data.BitCode.LLVM -- essential data types
 import Data.BitCode.LLVM.Type (Ty)
 import Data.BitCode.LLVM.Classes.HasType (ty)
-import Data.BitCode.LLVM.Value    (Value(FwdRef), Const, Named(..), Symbol, ValueSymbolTable, ValueSymbolEntry, symbolType, symbolValue, symbolName, entryName)
+import Data.BitCode.LLVM.Value    (Value(FwdRef), Const, Named(..), Symbol, ValueSymbolTable, ValueSymbolEntry, symbolType, symbolValue, symbolName, entryName, symbolIndex)
 import Data.BitCode.LLVM.Function (Function)
 import Data.BitCode.LLVM.Metadata (Metadata)
 import Data.BitCode.LLVM.ParamAttr
@@ -156,7 +156,7 @@ askType n = nth' n =<< types <$> ask
 
 symbolicate :: (Int, ValueSymbolEntry) -> [Symbol] -> [Symbol]
 symbolicate (idx, entry) xs = case nth idx xs of
-  Just s -> take idx xs ++ [Named (entryName entry) (symbolType s) (symbolValue s)] ++ drop (idx+1) xs
+  Just s -> take idx xs ++ [Named (entryName entry) (symbolIndex s) (symbolType s) (symbolValue s)] ++ drop (idx+1) xs
   Nothing -> xs
 
 -- | Adds a Value - Symbol element to the lookup table.
@@ -184,14 +184,14 @@ tellValue :: Value -> LLVMReader ()
 tellValue v = modify $ \c -> let
   n = length (symbols c)
   s = case lookup n (valueSymbolTable c) of
-    Just e -> Named (entryName e) (ty v) v
-    Nothing -> Unnamed (ty v) v
+    Just e -> Named (entryName e) undefined (ty v) v
+    Nothing -> Unnamed undefined (ty v) v
   in c { symbols = symbols c ++ [s] }
 
 askValue :: (Integral a) => Ty -> a -> LLVMReader Symbol
 askValue t n = fromMaybe (mkFwdRef t (fromIntegral n)) . nth n . symbols <$> ask
   where mkFwdRef :: Ty -> Word64 -> Symbol
-        mkFwdRef t n = Unnamed t (FwdRef n)
+        mkFwdRef t n = Unnamed undefined t (FwdRef n)
 
 -- | stricter version of askValue. This will not create
 -- a FwdRef if necessary.

@@ -55,12 +55,13 @@ data Module = Module
   -- NOTE: these are *not* used during generation.
   --       Only the mValues are used.
   , mDecls :: [Symbol]         -- ^ Function declarations for functions outside of the module.
+  , mDefns :: [Symbol]         -- ^ Functions defined (bodies are in mFns)
   , mFns :: [Function]         -- ^ Function definitions for function contained within the module.
   -- NOTE: while we could compute these from
   --       the existing values, doing so is
   --       rather expensive. And the constructor
   --       might be able to compute these directrly.
-  , mConsts :: Set Symbol
+  , mConsts :: [Symbol]
   , mTypes :: Set Ty
   }
   deriving (Show, Eq, Generic)
@@ -69,11 +70,11 @@ instance ToSymbols Module where
   symbols (Module{..}) = mValues ++ mDecls ++ concatMap symbols mFns
 
 instance HasType Symbol where
-  ty (V.Named _ t _) = t
-  ty (V.Unnamed t _) = t
-
-instance Binary Ident
-instance Binary Module
+  ty (V.Named _ _ t _) = t
+  ty (V.Unnamed _ t _) = t
+  ty (V.Lazy _ t _)    = t
+-- instance Binary Ident
+-- instance Binary Module
 
 -- TODO: when actually constructing a module, we might
 -- want a different data structure, which implicitly

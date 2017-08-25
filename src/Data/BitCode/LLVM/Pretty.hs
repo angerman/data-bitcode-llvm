@@ -1,12 +1,14 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE RecordWildCards #-}
 module Data.BitCode.LLVM.Pretty where
 
 import Data.Word (Word64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Maybe (fromMaybe)
 import Data.Char (toLower)
 import Text.PrettyPrint
@@ -71,8 +73,9 @@ instance Pretty Value where
 
 -- * Symbols
 instance Pretty Symbol where
-  pretty (Unnamed _ v) = pretty v
-  pretty (Named n _ v) = prefix v <> text n <+> suffix v
+  pretty (Unnamed _ _ v) = pretty v
+  pretty (Named n _ _ v) = prefix v <> text n <+> suffix v
+  pretty (Lazy n _ _) = text "lazy" <+> char '@' <> text n  
 
 -- * Types
 instance Pretty Ty where
@@ -117,6 +120,13 @@ prettyIndexed :: Pretty a => [a] -> [Doc]
 prettyIndexed = map pretty' . zip [0..]
   where pretty' (n, p) = int n $$ nest 4 (colon <+> pretty p)
 
+prettyWithIndex :: [Symbol] -> [Doc]
+prettyWithIndex = map pretty'
+  where pretty' :: Symbol -> Doc
+        pretty' s@(Unnamed (Indexed i) _t _v) = int (fromIntegral (i 0)) $$ nest 4 (colon <+> pretty s)
+        pretty' s@(Named _ (Indexed i) _t _v) = int (fromIntegral (i 0)) $$ nest 4 (colon <+> pretty s)
+        pretty' s@(Lazy _ _ _)      = text "lazy" $$ nest 4 (colon <+> pretty s)
+
 -- * Functions (Basic Blocks)
 instance Pretty F.Function where
   pretty (F.Function{..}) = pretty dSig
@@ -127,8 +137,8 @@ instance Pretty BasicBlock where
   pretty (BasicBlock insts) = vcat (map pretty insts)
 
 instance Pretty (Maybe Symbol, Inst) where
-  pretty (Just (Unnamed _ (TRef t r)), inst) = text "ref" <+> int r <+> text "<-" <+> pretty inst
-  pretty (Just (Named n _ (TRef t r)), inst) = text n <+> parens (text "ref" <+> int r) <+> text "<-" <+> pretty inst
+  pretty (Just (Unnamed _ _ (TRef t r)), inst) = text "ref" <+> int r <+> text "<-" <+> pretty inst
+  pretty (Just (Named n _ _ (TRef t r)), inst) = text n <+> parens (text "ref" <+> int r) <+> text "<-" <+> pretty inst
   pretty (Nothing,  inst) = pretty inst
 
 instance Pretty CallingConv where
@@ -151,7 +161,7 @@ instance Pretty Inst where
     | r'@(V.TRef{}) <- symbolValue s = pretty tck <+> pretty cc <+> pretty r' <> parens (hsep . punctuate comma $ map pretty args) <+> text "::" <+> pretty t
     | otherwise = text "WARN: Call without function or ref symbol not yet supported; are you sure you want this?"
   pretty (Cmp2   t l r p)  = parens (pretty l) <+> text (show p) <+> parens (pretty r) <+> text "::" <+> pretty t
-  pretty (I.Gep  t ib v idxs) = text "getElementPointer" <+> (if ib then text "inbounds" else empty) <+> pretty v <+> text "!!" <+> hcat (map pretty idxs)
+  pretty (I.Gep  t ib v idxs) = text "getElementPointer" <+> (if ib then text "inbounds" else empty) <+> pretty v <+> text "!!" <+> (hsep . punctuate (text " !!") $ map pretty idxs)
   pretty (ExtractValue v idxs) = text "extract value" <+> pretty v <+> text "!!" <+> hcat (map (text . show) idxs) 
   pretty (Ret v)       = text "ret" <+> parens (pretty v)
   pretty (UBr bbId)    = text "br" <+> pretty bbId
@@ -187,7 +197,8 @@ instance Pretty Module where
         text "Version"     $$ nest 12 (pretty mVersion)
     $+$ text "Triple"      $$ nest 12 (pretty mTriple)
     $+$ text "Datalayout"  $$ nest 12 (pretty mDatalayout)
-    $+$ text "Globals"     <+> parens (int (length mValues)) $$ nest 3 (vcat (prettyIndexed mValues))
-    $+$ text "Fn Decls"    <+> parens (int (length mDecls))  $$ nest 3 (vcat (prettyIndexed mDecls))
+    $+$ text "Constants"   <+> parens (int (length mConsts)) $$ nest 3 (vcat (prettyWithIndex mConsts))
+    $+$ text "Globals"     <+> parens (int (length mValues)) $$ nest 3 (vcat (prettyWithIndex mValues))
+    $+$ text "Fn Decls"    <+> parens (int (length mDecls))  $$ nest 3 (vcat (prettyWithIndex mDecls))
     $+$ text "Functions"   <+> parens (int (length mFns))    $$ nest 3 (vcat (prettyIndexed mFns))
     )

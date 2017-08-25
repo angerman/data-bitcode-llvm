@@ -71,4 +71,4 @@ data Inst
   | AtomicLoad  Ty Symbol Align {- volatility -} AtomicOrdering AtomicSynchScope
   deriving (Show, Eq, Generic)
 
-instance Binary Inst
+-- instance Binary Inst
