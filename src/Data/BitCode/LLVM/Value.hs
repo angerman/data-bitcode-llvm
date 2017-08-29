@@ -186,7 +186,10 @@ instance HasType Value where
     (Value t)      -> t
     (TRef t _)     -> t
 
-data Indexed a = Indexed (Int -> a)
+data IndexType = GlobI | ArgI | InstI
+  deriving (Show, Eq, Ord)
+
+data Indexed a = Indexed IndexType (Int -> a)
 
 instance Show a => Show (Indexed a)
   where show _ = "..."
@@ -194,17 +197,18 @@ instance Show a => Show (Indexed a)
 type Index = Indexed Word64
 
 instance Eq (Indexed a) where
-  x == y = True
+  (Indexed t _) == (Indexed t' _) = t == t' 
 
 instance Ord (Indexed a) where
-  x `compare` y = EQ
+  (Indexed t _) `compare` (Indexed t' _) = t `compare` t'
 
 instance Functor Indexed where
-  f `fmap` (Indexed x) = Indexed (\y -> f (x y))
+  f `fmap` (Indexed t x) = Indexed t (\y -> f (x y))
 
 instance Applicative Indexed where
-  pure x = Indexed (pure x)
-  (Indexed x) <*> (Indexed y) = Indexed (x <*> y)
+  pure x = Indexed GlobI (pure x)
+  (Indexed t x) <*> (Indexed t' y) | t == t' = Indexed t (x <*> y)
+                                   | otherwise = error "Cannot apply idxs of different type"
  
 instance Ord (Int -> Named a) where
   x `compare` y = EQ
@@ -226,10 +230,16 @@ deriving instance Ord (Named Value)
 deriving instance Show (Named Value)
 
 mkNamed :: HasCallStack => Ty -> String -> Value -> Symbol
-mkNamed t s v = Named s (Indexed (const undefined)) t (trace ("[mkNamed] accessing " ++ s ++ " value") v)
+mkNamed t s v = Named s (Indexed GlobI (const undefined)) t (trace ("[mkNamed] accessing " ++ s ++ " value") v)
+
+mkUnnamed' :: HasCallStack => IndexType -> Ty -> Value -> Symbol
+mkUnnamed' it t v = Unnamed (Indexed it (const undefined)) t (trace ("[mkUnnamed] accessing unnamed value of type " ++ show t) v)
 
 mkUnnamed :: HasCallStack => Ty -> Value -> Symbol
-mkUnnamed t v = Unnamed (Indexed (const undefined)) t (trace ("[mkUnnamed] accessing unnamed value of type " ++ show t) v)
+mkUnnamed t = mkUnnamed' GlobI t
+
+mkUnnamedInst :: HasCallStack => Ty -> Value -> Symbol
+mkUnnamedInst t = mkUnnamed' InstI t
 
 instance Functor Named where
   fmap f (Named n i t x) = Named n i t (f (trace "[fmap] symbol value" x))
@@ -265,12 +275,20 @@ symbolIndex (Unnamed i _ _) = i
 symbolIndex (Lazy _ _ s) = symbolIndex (s 0)
 
 symbolIndexValue :: HasCallStack => Symbol -> Word64
-symbolIndexValue s = let (Indexed i) = symbolIndex s in i 0
+symbolIndexValue s = let (Indexed _ i) = symbolIndex s in i 0
 
-withIndex :: (Int -> Word64) -> Symbol -> Symbol
-withIndex i (Named s _ t v) = (Named s (Indexed i) t (trace ("evaluating indexed " ++ s) v))
-withIndex i (Unnamed _ t v) = (Unnamed (Indexed i) t (trace "evaluating indexed unnamed" v))
-withIndex i (Lazy _ _ _) = error "Can not set value on lazy!"
+symbolIndexType :: HasCallStack => Symbol -> IndexType
+symbolIndexType s = let (Indexed t _) = symbolIndex s in t
+
+withIndex' :: IndexType -> (Int -> Word64) -> Symbol -> Symbol
+withIndex' t i (Named s _ t' v) = (Named s (Indexed t i) t' (trace ("evaluating indexed " ++ s) v))
+withIndex' t i (Unnamed _ t' v) = (Unnamed (Indexed t i) t' (trace "evaluating indexed unnamed" v))
+withIndex' _ _ (Lazy _ _ _) = error "Can not set value on lazy!"
+
+withIndex, withArgIndex, withInstIndex :: (Int -> Word64) -> Symbol -> Symbol
+withIndex i = withIndex' GlobI i
+withArgIndex i = withIndex' ArgI i
+withInstIndex i = withIndex' InstI i
 
 type ValueSymbolTable = [(Int,ValueSymbolEntry)]
 
@@ -283,8 +301,3 @@ entryName :: ValueSymbolEntry -> String
 entryName (Entry s) = s
 entryName (FnEntry _ s) = s
 
--- instance Binary FunctionExtra
--- instance Binary FpValue
--- instance Binary Const
--- instance Binary Value
--- instance Binary a => Binary (Named a)

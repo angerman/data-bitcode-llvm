@@ -29,7 +29,9 @@ library
     , pretty >= 1.1
     , data-bitcode >= 0.1
     , binary >= 0.8
+    , array
   exposed-modules:
+      Data.BitCode.FloatCast
       Data.BitCode.LLVM
       Data.BitCode.LLVM.CallingConv
       Data.BitCode.LLVM.Classes.HasType

@@ -123,8 +123,8 @@ prettyIndexed = map pretty' . zip [0..]
 prettyWithIndex :: [Symbol] -> [Doc]
 prettyWithIndex = map pretty'
   where pretty' :: Symbol -> Doc
-        pretty' s@(Unnamed (Indexed i) _t _v) = int (fromIntegral (i 0)) $$ nest 4 (colon <+> pretty s)
-        pretty' s@(Named _ (Indexed i) _t _v) = int (fromIntegral (i 0)) $$ nest 4 (colon <+> pretty s)
+        pretty' s@(Unnamed (Indexed _ i) _t _v) = int (fromIntegral (i 0)) $$ nest 4 (colon <+> pretty s)
+        pretty' s@(Named _ (Indexed _ i) _t _v) = int (fromIntegral (i 0)) $$ nest 4 (colon <+> pretty s)
         pretty' s@(Lazy _ _ _)      = text "lazy" $$ nest 4 (colon <+> pretty s)
 
 -- * Functions (Basic Blocks)

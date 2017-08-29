@@ -62,7 +62,7 @@ data Module = Module
   --       rather expensive. And the constructor
   --       might be able to compute these directrly.
   , mConsts :: [Symbol]
-  , mTypes :: Set Ty
+  , mTypes :: [Ty]             -- ^ sorted type list (in construction order)
   }
   deriving (Show, Eq, Generic)
 

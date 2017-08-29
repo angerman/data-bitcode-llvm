@@ -8,7 +8,7 @@ import Data.BitCode.LLVM
 import Data.BitCode.LLVM.Util
 import Data.BitCode.LLVM.Function
 import Data.BitCode.LLVM.Classes.HasType
-import qualified Data.BitCode.LLVM.Value as V (Const(..), Value(..), Named(..), Symbol, symbolValue, FunctionExtra(..), mkUnnamed, symbolIndexValue, symbolIndex)
+import qualified Data.BitCode.LLVM.Value as V (Const(..), IndexType(..), Value(..), FpValue(..), Named(..), Symbol, symbolValue, FunctionExtra(..), mkUnnamed, symbolIndexType, symbolIndexValue, symbolIndex)
 import qualified Data.BitCode.LLVM.Type  as T (Ty(..), ftypes, typeCompare)
 import qualified Data.BitCode.LLVM.Instruction as I (Inst(..), TailCallKind(..))
 import Data.BitCode.LLVM.Flags
@@ -133,15 +133,8 @@ lookupValueIndex vs v = case elemIndex v vs of
   Just i  -> fromIntegral i
   Nothing -> error . show $ text "Unable to find value" <+> pretty v <+> text "in" <+> pretty vs
 
-lookupSymbolIndex :: HasCallStack => Map V.Symbol Word64 -> V.Symbol -> Word64
-lookupSymbolIndex ss s = case Map.lookup s ss <|> Map.lookup (fixType s) ss of
-  Just i  -> i
-  Nothing -> error . show $ text "Unable to find symbol" <+> text ( take 600 $ show (fixType s) ) <+> text "in" <+> text (take 1200 $ show (head $ Map.toList ss))
-  where fixType (V.Named n i t v) = V.Named n i (ty v) v
-        fixType (V.Unnamed i t v) = V.Unnamed i (ty v) v
-        fixType (V.Lazy n t v)    = fixType (v 0)
---        f :: Word64 -> String
---        f i = "Looking up symbol index for " ++ (show (pretty s)) ++ " with symbolIndex: " ++ (show (V.symbolIndex s)) ++ " and looked up value: " ++ show i
+lookupSymbolIndex :: HasCallStack => V.Symbol -> Word64
+lookupSymbolIndex = V.symbolIndexValue
 
 lookupValueIndex' :: HasCallStack => Map V.Value Word64 -> V.Value -> Word64
 lookupValueIndex' vs v = case Map.lookup v vs of
@@ -212,7 +205,7 @@ instance ToNBitCode (Maybe Ident, Module) where
                      --       generate globals and functions first; then constants.
                      (map mkGlobalRec (map V.symbolValue globalSymbols)) ++
                      (map mkFunctionRec (map V.symbolValue functionSymbols)) ++
-                     (mkConstBlock valueList constantSymbols)
+                     (mkConstBlock constantSymbols)
       nBitCodeLength :: [NBitCode] -> (Int,Int)
       nBitCodeLength nbc = evalBitCodeWriter $ (emitTopLevel . map denormalize $ nbc) >> ask
 
@@ -266,9 +259,6 @@ instance ToNBitCode (Maybe Ident, Module) where
       valueList :: Map V.Symbol Word64
       valueList = Map.fromList $ zip (globalSymbols ++ functionSymbols ++ constantSymbols) [0..]
 
-      lookupConstSymbolIndex s = V.symbolIndexValue s
-
-
       -- * T Y P E S
       -- all top level types, and all the types to construct them. (e.g. i8** -> i8, i8*, and i8**).
       -- topLevelTypes = foldl T.ftypes [] $ map ty flatSymbols
@@ -284,59 +274,60 @@ instance ToNBitCode (Maybe Ident, Module) where
       --                                 $+$ prettyIndexed typeListO
       --                                 $+$ text "OPTIMIZED:"
       --                                 $+$ prettyIndexed x ) $!
-      typeList = sortBy T.typeCompare (Set.toList mTypes)
+      typeList = mTypes -- sortBy T.typeCompare (Set.toList mTypes)
       typeMap :: Map T.Ty Word64
       typeMap = Map.fromList (zip typeList [0..]) 
 
       -- | Turn a set of Constant Values unto BitCode Records.
       mkConstBlock :: HasCallStack
-                   => Map V.Symbol Word64 -- ^ values that can be referenced.
-                   -> [V.Symbol] -- ^ the constants to turn into BitCode
+                   => [V.Symbol] -- ^ the constants to turn into BitCode
                    -> [NBitCode]
-      mkConstBlock values consts | length consts > 0 = [ mkBlock CONSTANTS .
+      mkConstBlock consts | length consts > 0 = [ mkBlock CONSTANTS .
                                                          concatMap f $!
 --                                                         traceShow "groupBy" . groupBy ((==) `on` (V.cTy . V.symbolValue)) $
                                                          map pure $!
                                                          consts ]
-                                 | otherwise = []
+                          | otherwise = []
         where
           f :: [V.Symbol] -> [NBitCode]
           f [] = []
           f (s:cs)
             | (V.Constant t c) <- V.symbolValue s
-            = (mkRec CC.CST_CODE_SETTYPE (lookupTypeIndex typeMap t)):mkConstRec values c:map (mkConstRec values . V.cConst . V.symbolValue) cs
+            = (mkRec CC.CST_CODE_SETTYPE (lookupTypeIndex typeMap t)):mkConstRec c:map (mkConstRec . V.cConst . V.symbolValue) cs
             | otherwise = error $ "Invalid constant " ++ show s
-      mkConstRec :: HasCallStack => Map V.Symbol Word64 -> V.Const -> NBitCode
-      mkConstRec constantSymbols V.Null               = mkEmptyRec CC.CST_CODE_NULL
-      mkConstRec constantSymbols V.Undef              = mkEmptyRec CC.CST_CODE_UNDEF
-      mkConstRec constantSymbols (V.Int n)            = mkRec CC.CST_CODE_INTEGER (fromSigned n)
-      mkConstRec constantSymbols (V.WideInt ns)       = mkRec CC.CST_CODE_WIDE_INTEGER (map fromSigned ns)
-      -- TODO: Float encoding?
---      mkConstRec constants (Float f)                = mkRect CC.CST_CODE_FLOAT f
+      mkConstRec :: HasCallStack => V.Const -> NBitCode
+      mkConstRec V.Null               = mkEmptyRec CC.CST_CODE_NULL
+      mkConstRec V.Undef              = mkEmptyRec CC.CST_CODE_UNDEF
+      mkConstRec (V.Int n)            = mkRec CC.CST_CODE_INTEGER (fromSigned n)
+      mkConstRec (V.WideInt ns)       = mkRec CC.CST_CODE_WIDE_INTEGER (map fromSigned ns)
+
+      mkConstRec (V.Float (V.FpHalf f))   = mkRec CC.CST_CODE_FLOAT [fromIntegral f :: Word64]
+      mkConstRec (V.Float (V.FpSingle f)) = mkRec CC.CST_CODE_FLOAT [fromIntegral f :: Word64]
+      mkConstRec (V.Float (V.FpDouble f)) = mkRec CC.CST_CODE_FLOAT [f]
       -- TODO: Support aggregates (lookup value numbers in Constants? + Globals + Functions?)
-      mkConstRec constantSymbols (V.Struct vals)
-        | length vals > 0 = mkRec CC.CST_CODE_AGGREGATE ((map lookupConstSymbolIndex vals) :: [Word64])
+      mkConstRec (V.Struct vals)
+        | length vals > 0 = mkRec CC.CST_CODE_AGGREGATE ((map lookupSymbolIndex vals) :: [Word64])
         | otherwise       = mkRec CC.CST_CODE_NULL ([] :: [Word64])
-      mkConstRec constantSymbols (V.Array  vals)
-        | length vals > 0 = mkRec CC.CST_CODE_AGGREGATE ((map lookupConstSymbolIndex vals) :: [Word64])
+      mkConstRec (V.Array  vals)
+        | length vals > 0 = mkRec CC.CST_CODE_AGGREGATE ((map lookupSymbolIndex vals) :: [Word64])
         | otherwise       = mkRec CC.CST_CODE_NULL ([] :: [Word64])
-      mkConstRec constantSymbols (V.Vector vals)
-        | length vals > 0 = mkRec CC.CST_CODE_AGGREGATE ((map lookupConstSymbolIndex vals) :: [Word64])
+      mkConstRec (V.Vector vals)
+        | length vals > 0 = mkRec CC.CST_CODE_AGGREGATE ((map lookupSymbolIndex vals) :: [Word64])
         | otherwise       = mkRec CC.CST_CODE_NULL ([] :: [Word64])
-      mkConstRec constantSymbols (V.String s)         = mkRec CC.CST_CODE_STRING s
-      mkConstRec constantSymbols (V.CString s)        = mkRec CC.CST_CODE_CSTRING s
-      mkConstRec constantSymbols (V.BinOp op lhs rhs) = mkRec CC.CST_CODE_CE_BINOP [ fromEnum' op
-                                                                                   , lookupConstSymbolIndex lhs
-                                                                                   , lookupConstSymbolIndex rhs
-                                                                                   ]
+      mkConstRec (V.String s)         = mkRec CC.CST_CODE_STRING s
+      mkConstRec (V.CString s)        = mkRec CC.CST_CODE_CSTRING s
+      mkConstRec (V.BinOp op lhs rhs) = mkRec CC.CST_CODE_CE_BINOP [ fromEnum' op
+                                                                   , lookupSymbolIndex lhs
+                                                                   , lookupSymbolIndex rhs
+                                                                   ]
       -- NOTE: t is the type we want to cast to (e.g. the CurrentType); the encoded type however is that of the symbol
-      mkConstRec constantSymbols (V.Cast t op s)      = mkRec CC.CST_CODE_CE_CAST [fromEnum' op, lookupTypeIndex typeMap (vty s)
-                                                                                  , lookupConstSymbolIndex s]
+      mkConstRec (V.Cast t op s)      = mkRec CC.CST_CODE_CE_CAST [fromEnum' op, lookupTypeIndex typeMap (vty s)
+                                                                  , lookupSymbolIndex s]
       -- XXX  Gep, Select, ExtractElt, InsertElt, ShuffleVec, Cmp, InlineAsm, ShuffleVecEx,
-      mkConstRec constantSymbols (V.InboundsGep t symbls)
+      mkConstRec (V.InboundsGep t symbls)
                                                       = mkRec CC.CST_CODE_CE_INBOUNDS_GEP $ (lookupTypeIndex typeMap t):zip' (map (lookupTypeIndex typeMap . vty) symbls)
-                                                        (map lookupConstSymbolIndex symbls)
-      mkConstRec _ x                                  = error $ "mkConstRec: " ++ show x ++ " not yet implemented!"
+                                                        (map lookupSymbolIndex symbls)
+      mkConstRec x                                  = error $ "mkConstRec: " ++ show x ++ " not yet implemented!"
 
       -- signedness encoding.
       -- see `toSigned` in FromBitCode.
@@ -357,7 +348,7 @@ instance ToNBitCode (Maybe Ident, Module) where
       mkGlobalRec :: HasCallStack => V.Value -> NBitCode
       mkGlobalRec (V.Global{..}) = mkRec MC.GLOBALVAR [ lookupTypeIndex typeMap t -- NOTE: We store the pointee type.
                                                       , 1 .|. shift (bool gIsConst) 1 .|. shift gAddressSpace 2
-                                                      , fromMaybe 0 ((+1) . lookupSymbolIndex valueList <$> gInit)
+                                                      , fromMaybe 0 ((+1) . lookupSymbolIndex <$> gInit)
                                                       , fromEnum' gLinkage
                                                       , gParamAttrs
                                                       , gSection
@@ -381,10 +372,10 @@ instance ToNBitCode (Maybe Ident, Module) where
                                                          , fromEnum' fVisibility
                                                          , fGC
                                                          , bool fUnnamedAddr
-                                                         , fromMaybe 0 ((+1) . lookupSymbolIndex valueList <$> (V.fePrologueData fExtra))
+                                                         , fromMaybe 0 ((+1) . lookupSymbolIndex <$> (V.fePrologueData fExtra))
                                                          , fromEnum' fDLLStorageClass
                                                          , fComdat
-                                                         , fromMaybe 0 ((+1) . lookupSymbolIndex valueList <$> (V.fePrefixData fExtra))
+                                                         , fromMaybe 0 ((+1) . lookupSymbolIndex <$> (V.fePrefixData fExtra))
                                                          , fPersonalityFn
                                                          ]
                                        where (T.Ptr _ t) = fType
@@ -416,7 +407,7 @@ instance ToNBitCode (Maybe Ident, Module) where
       mkFunctionBlock (Function sig consts bbs)
         = mkBlock FUNCTION $
           [ mkRec FC.DECLAREBLOCKS (length bbs) ] ++
-          mkConstBlock bodyVals fconstants ++
+          mkConstBlock fconstants ++
           -- this is a *bit* ugly.
           -- We use a fold to carry the instruction count through
           -- the record creation. We also prepend records and hence
@@ -425,6 +416,8 @@ instance ToNBitCode (Maybe Ident, Module) where
           (reverse . snd $ foldl' mkInstRecFold (0,[]) (concatMap blockInstructions bbs))
         where -- function arguments
               fArgTys = funParamTys (V.fType (V.symbolValue sig))
+              nArgs :: Word64
+              nArgs = fromIntegral (length fArgTys)
               fArgs = zipWith (\t -> V.mkUnnamed t . V.Arg t) fArgTys [0..]
               -- function local constant
               fconstants :: [V.Symbol]
@@ -444,7 +437,8 @@ instance ToNBitCode (Maybe Ident, Module) where
               -- the references generated by the instructions will be placed.
               bodyVals :: Map V.Symbol Word64
               bodyVals = Map.unionWith (error . show) valueList (Map.fromList $ zip (fArgs ++ fconstants) ([(fromIntegral $ Map.size valueList)..] :: [Word64]))
-              nBodyVals = Map.size bodyVals
+              nValueList :: Word64
+              nValueList = fromIntegral (Map.size valueList)
 
               blockInstructions :: HasCallStack => BasicBlock -> [I.Inst]
               blockInstructions (BasicBlock insts) = map snd insts
@@ -453,10 +447,6 @@ instance ToNBitCode (Maybe Ident, Module) where
               -- instruction values (e.g. values generated by instructions)
               instVals = zipWith (\t -> V.mkUnnamed t . V.TRef t) [t | Just t <- map instTy (concatMap blockInstructions bbs)] [0..]
 
-              -- all values. This will be used to lookup indices for values in.
-              allVals :: Map V.Symbol Word64
-              allVals = Map.unionWith (error . show) bodyVals (Map.fromList $ zip instVals ([(fromIntegral $ Map.size bodyVals)..] :: [Word64]))
-
               -- These are in FromBitCode as well. TODO: Refactor move BitMasks into a common file.
               inAllocMask = shift (1 :: Int) 5
               explicitTypeMask = shift (1 :: Int) 6
@@ -464,17 +454,16 @@ instance ToNBitCode (Maybe Ident, Module) where
 
               -- Relative Symbol lookup
               lookupRelativeSymbolIndex :: (HasCallStack)
-                                        => Map V.Symbol Word64 -- ^ values prior to entering the instruction block
-                                        -> [V.Symbol] -- ^ instruction values
-                                        -> Word64       -- ^ current instruction count
+                                        => Word64     -- ^ current instruction count
                                         -> V.Symbol   -- ^ the symbol to lookup
                                         -> Word64
-              lookupRelativeSymbolIndex vs ivs iN s = vN + iN - lookupSymbolIndex vals s
-                where vN = fromIntegral (Map.size vs)
-                      vals = Map.unionWith (error . show) vs (Map.fromList $ zip ivs [vN..])
+              lookupRelativeSymbolIndex iN s = case V.symbolIndexType s of
+                V.GlobI -> nValueList + nArgs + iN - V.symbolIndexValue s
+                V.ArgI  ->              nArgs + iN - V.symbolIndexValue s
+                V.InstI ->                      iN - V.symbolIndexValue s
 
               lookupRelativeSymbolIndex' :: (HasCallStack) => Word64 -> V.Symbol -> Word64
-              lookupRelativeSymbolIndex' = lookupRelativeSymbolIndex bodyVals instVals
+              lookupRelativeSymbolIndex' = lookupRelativeSymbolIndex
 
               -- Build instructions.
               mkInstRec :: HasCallStack => Word64 -> I.Inst -> NBitCode
@@ -496,7 +485,7 @@ instance ToNBitCode (Maybe Ident, Module) where
               -- TODO: If we want to support InAlloca, we need to extend Alloca. For now we will not set the flag.
               mkInstRec n (I.Alloca t s a) = mkRec FC.INST_ALLOCA [ lookupTypeIndex typeMap (lower t)
                                                                   , lookupTypeIndex typeMap . vty $ s
-                                                                  , lookupSymbolIndex allVals s
+                                                                  , lookupSymbolIndex s
                                                                   , fromIntegral $ explicitTypeMask .|. bitWidth a
                                                                   ]
               -- TODO: Support Volatile flag
@@ -515,19 +504,28 @@ instance ToNBitCode (Maybe Ident, Module) where
 
               -- TODO: Support FMF and Explicit Type flags explicitly
               -- XXX: Call needs paramAttrs! -- Can use 0 for empty param set.
-              mkInstRec n (I.Call _ tck cc s fnTy args) = mkRec FC.INST_CALL $ [ (0 :: Word64) -- Fix PARAMATTR
-                                                                               , cconv .|. explTy .|. tcKind
-                                                                               -- FMF
-                                                                               , lookupTypeIndex typeMap (lower fnTy)
-                                                                               , lookupRelativeSymbolIndex' n s
-                                                                               ] ++ map (lookupRelativeSymbolIndex' n) args
-                                                          where cconv  = shift (fromEnum' cc) (fromEnum CALL_CCONV)
-                                                                explTy = setBit 0 (fromEnum' CALL_EXPLICIT_TYPE)
-                                                                tcKind = case tck of
-                                                                           I.None     -> 0
-                                                                           I.Tail     -> setBit 0 (fromEnum' CALL_TAIL)
-                                                                           I.MustTail -> setBit 0 (fromEnum' CALL_MUSTTAIL)
-                                                                           I.NoTail   -> setBit 0 (fromEnum' CALL_NOTAIL)
+              mkInstRec n (I.Call _ tck cc s fnTy args)
+                | ty (V.symbolValue s) /= ty s = error $ unlines [ "SymbolValues type and Symbol"
+                                                                  , show s
+                                                                  , "type mismatch; symbolValue ty"
+                                                                  , show (ty (V.symbolValue s))
+                                                                  , "ty s"
+                                                                  , show (ty s)
+                                                                  ]
+                | ty (V.symbolValue s) /= fnTy = error $ "Callees Symbols ty " ++ show (ty (V.symbolValue s)) ++ " does not match call signature " ++ show fnTy
+                | otherwise = mkRec FC.INST_CALL $ [ (0 :: Word64) -- Fix PARAMATTR
+                                                   , cconv .|. tcKind .|. explTy
+                                                     -- FMF
+                                                   , lookupTypeIndex typeMap (lower fnTy)
+                                                   , lookupRelativeSymbolIndex' n s
+                                                   ] ++ map (lookupRelativeSymbolIndex' n) args
+                where cconv  = shift (fromEnum' cc) (fromEnum CALL_CCONV)
+                      explTy = setBit 0 (fromEnum' CALL_EXPLICIT_TYPE)
+                      tcKind = case tck of
+                                 I.None     -> 0
+                                 I.Tail     -> setBit 0 (fromEnum' CALL_TAIL)
+                                 I.MustTail -> setBit 0 (fromEnum' CALL_MUSTTAIL)
+                                 I.NoTail   -> setBit 0 (fromEnum' CALL_NOTAIL)
 
               mkInstRec n (I.Cmp2 _ lhs rhs pred) = mkRec FC.INST_CMP2 [ lookupRelativeSymbolIndex' n lhs
                                                                                  , lookupRelativeSymbolIndex' n rhs
@@ -588,7 +586,7 @@ instance ToNBitCode (Maybe Ident, Module) where
                                          , lookupRelativeSymbolIndex' n val
                                          , bbId
                                          ]
-                                         ++ concat [ [ lookupSymbolIndex allVals val
+                                         ++ concat [ [ lookupSymbolIndex val
                                                      , bbId ]
                                                    | (val, bbId) <- bbIds
                                                    ]

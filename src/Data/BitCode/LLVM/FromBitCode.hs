@@ -448,8 +448,8 @@ parseModule bs = do
   tellVersion version
   trace "Parsing Blocks"
   flip mapM_  bs $ \case
-    (NBlock c bs') -> parseModuleBlock (toEnum c, bs')
-    (NRec   c vs)  -> parseModuleRecord (toEnum c, vs)
+    (NBlock c bs') -> parseModuleBlock (toEnum (fromIntegral c), bs')
+    (NRec   c vs)  -> parseModuleRecord (toEnum (fromIntegral c), vs)
 
   trace "Parsing VST"
   -- update values with symbols
@@ -477,7 +477,7 @@ parseModule bs = do
 
   let functionDefs = map dSig fns 
 
-  typeSet <- Set.fromList <$> askTypeList
+  typeSet <- askTypeList
 
   let isConstant x
         | (V.Constant{})   <- V.symbolValue x = True
