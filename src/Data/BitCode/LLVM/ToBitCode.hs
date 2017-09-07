@@ -43,7 +43,6 @@ import GHC.Stack (HasCallStack)
 -- to compute the length of emitted bitcode.
 import Data.BitCode (denormalize)
 import Data.BitCode.Writer (emitTopLevel)
-import Data.BitCode.Writer.Monad (evalBitCodeWriter, ask)
 
 import Data.BitCode.LLVM.Pretty hiding (prettyIndexed)
 import Data.BitCode.LLVM.Util
@@ -206,8 +205,8 @@ instance ToNBitCode (Maybe Ident, Module) where
                      (map mkGlobalRec (map V.symbolValue globalSymbols)) ++
                      (map mkFunctionRec (map V.symbolValue functionSymbols)) ++
                      (mkConstBlock constantSymbols)
-      nBitCodeLength :: [NBitCode] -> (Int,Int)
-      nBitCodeLength nbc = evalBitCodeWriter $ (emitTopLevel . map denormalize $ nbc) >> ask
+      -- nBitCodeLength :: [NBitCode] -> (Int,Int)
+      -- nBitCodeLength nbc = evalBitCodeWriter $ (emitTopLevel . map denormalize $ nbc) >> ask
 
       --------------------------------------------------------------------------
       -- Prelim discussion:
@@ -395,7 +394,7 @@ instance ToNBitCode (Maybe Ident, Module) where
                                                     -- XXX: VST OFFSETS
                                                     | otherwise = Just (mkRec VST.VST_CODE_ENTRY (n:map fromEnum nm))
                                                                   -- Just (mkRec VST.VST_CODE_FNENTRY (n:offset-1:map fromEnum nm))
-                where offset = fst . nBitCodeLength $ [ mkBlock MODULE $ moduleHeader ]
+--                where offset = fst . nBitCodeLength $ [ mkBlock MODULE $ moduleHeader ]
               -- XXX: this is ok here, as anything else can just be named constants/globals.
               --      We simply can not encounter blocks just yet.
               mkSymTabRec (n, nm, _)                            = Just (mkRec VST.VST_CODE_ENTRY (n:map fromEnum nm))
