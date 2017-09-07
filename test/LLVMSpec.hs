@@ -14,7 +14,7 @@ import qualified Data.BitCode.Writer.Monad     as BCM (writeFile)
 import Data.BitCode.Writer (emitTopLevel)
 import Data.Maybe (catMaybes)
 import Data.BitCode.LLVM.ToBitCode (toBitCode)
-import Data.BitCode.Writer.Combinators (withHeader)
+import Data.BitCode.Writer.Monad (withHeader)
 
 import System.Process (readProcessWithExitCode)
 import System.Exit (ExitCode(ExitSuccess))
