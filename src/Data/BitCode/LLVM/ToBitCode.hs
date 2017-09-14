@@ -346,7 +346,7 @@ instance ToNBitCode (Maybe Ident, Module) where
 
       mkGlobalRec :: HasCallStack => V.Value -> NBitCode
       mkGlobalRec (V.Global{..}) = mkRec MC.GLOBALVAR [ lookupTypeIndex typeMap t -- NOTE: We store the pointee type.
-                                                      , 1 .|. shift (bool gIsConst) 1 .|. shift gAddressSpace 2
+                                                      , bool gIsConst .|. shift explicitType 1 .|. shift gAddressSpace 2
                                                       , fromMaybe 0 ((+1) . lookupSymbolIndex <$> gInit)
                                                       , fromEnum' gLinkage
                                                       , gParamAttrs
@@ -359,6 +359,7 @@ instance ToNBitCode (Maybe Ident, Module) where
                                                       , gComdat
                                                       ]
                                    where (T.Ptr _ t) = gPointerType
+                                         explicitType = 1
 
       mkFunctionRec :: HasCallStack => V.Value -> NBitCode
       mkFunctionRec (V.Function{..}) = mkRec MC.FUNCTION [ lookupTypeIndex typeMap t -- NOTE: Similar to Globals we store the pointee type.
@@ -505,13 +506,21 @@ instance ToNBitCode (Maybe Ident, Module) where
               -- XXX: Call needs paramAttrs! -- Can use 0 for empty param set.
               mkInstRec n (I.Call _ tck cc s fnTy args)
                 | ty (V.symbolValue s) /= ty s = error $ unlines [ "SymbolValues type and Symbol"
-                                                                  , show s
-                                                                  , "type mismatch; symbolValue ty"
-                                                                  , show (ty (V.symbolValue s))
-                                                                  , "ty s"
-                                                                  , show (ty s)
-                                                                  ]
-                | ty (V.symbolValue s) /= fnTy = error $ "Callees Symbols ty " ++ show (ty (V.symbolValue s)) ++ " does not match call signature " ++ show fnTy
+                                                                 , show s
+                                                                 , "type mismatch; symbolValue ty"
+                                                                 , show (ty (V.symbolValue s))
+                                                                 , "ty s"
+                                                                 , show (ty s)
+                                                                 ]
+                | ty (V.symbolValue s) /= fnTy = error $ unlines [ "Callees Symbols "
+                                                                 , show s
+                                                                 , "type mismatch; symbolValue ty"
+                                                                 , show (ty (V.symbolValue s))
+                                                                 , "function signature type"
+                                                                 , show fnTy
+                                                                 , "arguments (" ++ show (length args) ++ ")"
+                                                                 , show args
+                                                                 ]
                 | otherwise = mkRec FC.INST_CALL $ [ (0 :: Word64) -- Fix PARAMATTR
                                                    , cconv .|. tcKind .|. explTy
                                                      -- FMF
@@ -592,7 +601,7 @@ instance ToNBitCode (Maybe Ident, Module) where
 
               mkInstRec n (I.ExtractValue val idxs)
                 = mkRec FC.INST_EXTRACTVAL $ [ lookupRelativeSymbolIndex' n val ] ++ idxs
-                
+
               mkInstRec n i = error $ "Instruction " ++ (show i) ++ " not yet supported."
               -- Fold helper to keep track of the instruction count.
               mkInstRecFold :: HasCallStack => (Word64, [NBitCode]) -> I.Inst -> (Word64, [NBitCode])

@@ -163,6 +163,11 @@ external = setLinkage External
 private  = setLinkage Private
 internal = setLinkage Private
 
+mutable, immutable :: HasCallStack => Value -> Value
+mutable   x = x { gIsConst = False }
+immutable x = x { gIsConst = True }
+
+
 instance HasLinkage Value where
   getLinkage (Global{gLinkage = l})   = l
   getLinkage (Function{fLinkage = l}) = l 
@@ -252,7 +257,7 @@ type Symbol = Named Value
 instance HasLinkage a => HasLinkage (Named a) where
   getLinkage (Named _ _ _ x) = getLinkage x
   getLinkage (Unnamed _ _ x) = getLinkage x
-  setLinkage l = fmap (setLinkage l)  
+  setLinkage l = fmap (setLinkage l)
 
 symbolValue :: Symbol -> Value
 symbolValue (Named n _ _ v) = trace ("[symbolValue] for symbol " ++ n) v
