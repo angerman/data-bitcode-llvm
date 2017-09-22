@@ -5,6 +5,8 @@
 {-# LANGUAGE RecordWildCards #-}
 module Data.BitCode.LLVM.Pretty where
 
+import Prelude hiding ((<>))
+
 import Data.Word (Word64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
