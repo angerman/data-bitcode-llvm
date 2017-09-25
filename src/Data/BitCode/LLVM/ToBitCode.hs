@@ -505,12 +505,16 @@ instance ToNBitCode (Maybe Ident, Module) where
               -- TODO: Support FMF and Explicit Type flags explicitly
               -- XXX: Call needs paramAttrs! -- Can use 0 for empty param set.
               mkInstRec n (I.Call _ tck cc s fnTy args)
-                | ty (V.symbolValue s) /= ty s = error $ unlines [ "SymbolValues type and Symbol"
-                                                                 , show s
-                                                                 , "type mismatch; symbolValue ty"
+                | ty (V.symbolValue s) /= ty s = error $ unlines [ "Error in Call Instruction (ty (symbolValue s) /= ty s)"
+                                                                 , "for symbol: " ++ show s
+                                                                 , "type of symbol (callee) value: "
                                                                  , show (ty (V.symbolValue s))
-                                                                 , "ty s"
+                                                                 , "type of symbol (callee): "
                                                                  , show (ty s)
+                                                                 , "function type (caller):"
+                                                                 , show fnTy
+                                                                 , "arguments (" ++ show (length args) ++ ")"
+                                                                 , show args
                                                                  ]
                 | ty (V.symbolValue s) /= fnTy = error $ unlines [ "Callees Symbols "
                                                                  , show s
