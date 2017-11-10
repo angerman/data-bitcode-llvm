@@ -117,7 +117,7 @@ instance Monad LLVMReader where
 -- * Monad Plus
 instance MonadPlus LLVMReader where
   mzero = LLVM $ \c -> PairS (Left "") c
-  m `mplus` n = LLVM $ \c -> let PairS a c' = runLLVMReader m c
+  m `mplus` n = LLVM $ \c -> let PairS _ c' = runLLVMReader m c
                              in runLLVMReader n c'
 
 instance Alternative LLVMReader where

@@ -102,7 +102,8 @@ instTy (Inst.Gep bt _ s idxs) | bt == ty s = Just $ lift $ drill (ty s) idxs
                               | otherwise  = error $ "Broken getElementPointer. Basetype: " ++ show bt ++ " and value type type: " ++ show (lower (ty s)) ++ " don't match!"
 instTy (Inst.ExtractValue s idxs) = Just $ drill' (ty s) (map mkI32Val idxs)
   where mkI32Val = Val.Constant (Ty.Int 32) . Val.Int . fromIntegral
-instTy i                       = error $ "No instTy for instruction: " ++ show i
+
+-- instTy i                       = error $ "No instTy for instruction: " ++ show i
 
 
 -- TODO: Support Vector indexes.

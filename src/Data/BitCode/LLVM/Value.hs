@@ -272,7 +272,7 @@ symbolName (Lazy s _ _) = Just s
 symbolType :: Symbol -> Ty
 symbolType (Named _ _ t _) = t
 symbolType (Unnamed _ t _) = t
-symbolTYpe (Lazy _ t _) = t
+symbolType (Lazy _ t _) = t
 
 symbolIndex :: Symbol -> Index
 symbolIndex (Named _ i _ _) = i
